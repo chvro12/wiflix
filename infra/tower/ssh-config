@@ -1,0 +1,5 @@
+Host weflix-vps
+  HostName 78.138.45.49
+  User weflix
+  IdentityFile ~/.ssh/weflix_vps_ed25519
+  IdentitiesOnly yes

@@ -8,10 +8,10 @@ import { buildBrowsePath, getCategoryBySlug, getSortByFromSlug } from '../urlFil
 import SEO from '../SEO';
 
 const SORT_OPTIONS = [
-  { value: 'popularity.desc',    label: 'Most Popular' },
-  { value: 'vote_average.desc',   label: 'Top Rated' },
-  { value: 'first_air_date.desc', label: 'Newest' },
-  { value: 'first_air_date.asc',  label: 'Oldest' },
+  { value: 'popularity.desc',    label: 'Les plus populaires' },
+  { value: 'vote_average.desc',   label: 'Les mieux notées' },
+  { value: 'first_air_date.desc', label: 'Les plus récentes' },
+  { value: 'first_air_date.asc',  label: 'Les plus anciennes' },
 ];
 
 function Series() {
@@ -29,7 +29,7 @@ function Series() {
   const sortBy = sortSlug ? sortFromPath : (querySortBy || 'popularity.desc');
 
   const allCategories = [
-    { id: null, name: 'Trending' },
+    { id: null, name: 'Tendances' },
     ...[...GENRES.tv, ...SPECIAL_CATEGORIES.tv].sort((a, b) => a.name.localeCompare(b.name)),
   ];
 
@@ -69,11 +69,11 @@ function Series() {
   return (
     <div className="flex flex-col min-h-screen">
       <SEO
-        title={genre ? `${genre.name} TV Shows` : 'TV Shows'}
+        title={genre ? `Séries ${genre.name.toLowerCase()}` : 'Séries'}
         description={
           genre
-            ? `Stream ${genre.name} TV shows free on WeFlix. Watch the best ${genre.name.toLowerCase()} series, from binge-worthy dramas to must-watch hits.`
-            : 'Stream trending TV shows and series free on WeFlix. Discover the most popular, top-rated, and newest shows across all genres.'
+            ? `Découvrez les meilleures séries ${genre.name.toLowerCase()} sur WeFlix.`
+            : 'Découvrez les séries tendance, populaires, les mieux notées et les plus récentes sur WeFlix.'
         }
         url={`https://www.weflix.app${buildBrowsePath('tv', genreId)}`}
       />
@@ -87,11 +87,11 @@ function Series() {
             </div>
             <div className="flex flex-col">
               <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight leading-none">
-                TV Shows
+                Séries
               </h1>
               {genre ? (
                 <div className="flex items-center gap-2 mt-1.5">
-                  <span className="text-gray-400 text-[13px] font-medium leading-none">Browsing</span>
+                  <span className="text-gray-400 text-[13px] font-medium leading-none">Genre</span>
                   <span className="px-2 py-0.5 rounded shadow-sm bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-bold tracking-wider uppercase leading-none">
                     {genre.name}
                   </span>
@@ -99,9 +99,9 @@ function Series() {
               ) : (
                 <div className="flex items-center gap-2 mt-1.5">
                   <span className="px-2 py-0.5 rounded shadow-sm bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-bold tracking-wider uppercase leading-none">
-                    Trending
+                    Tendances
                   </span>
-                  <span className="text-gray-400 text-[13px] font-medium leading-none">this week</span>
+                  <span className="text-gray-400 text-[13px] font-medium leading-none">cette semaine</span>
                 </div>
               )}
             </div>

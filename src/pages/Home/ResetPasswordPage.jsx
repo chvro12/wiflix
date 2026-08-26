@@ -22,7 +22,7 @@ export default function ResetPasswordPage() {
 
   useEffect(() => {
     if (!oobCode || mode !== 'resetPassword') {
-      setError('Invalid or missing reset token. Make sure you used the exact link from your email.');
+      setError('Le lien de réinitialisation est invalide ou incomplet. Utilisez le lien exact reçu par e-mail.');
       setValidating(false);
       return;
     }
@@ -34,7 +34,7 @@ export default function ResetPasswordPage() {
         setValidating(false);
       })
       .catch((err) => {
-        setError('The password reset link is invalid or has expired. Please request a new one.');
+        setError('Le lien de réinitialisation est invalide ou a expiré. Veuillez en demander un nouveau.');
         setValidating(false);
       });
   }, [oobCode, mode]);
@@ -42,7 +42,7 @@ export default function ResetPasswordPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!password || password.length < 6) {
-      setError('Password must be at least 6 characters long.');
+      setError('Le mot de passe doit contenir au moins 6 caractères.');
       return;
     }
     
@@ -51,8 +51,8 @@ export default function ResetPasswordPage() {
     try {
       await confirmPasswordReset(auth, oobCode, password);
       setSuccess(true);
-    } catch (err) {
-      setError(err.message.replace('Firebase:', '').trim());
+    } catch {
+      setError('La modification du mot de passe a échoué. Veuillez demander un nouveau lien et réessayer.');
     } finally {
       setLoading(false);
     }
@@ -68,7 +68,7 @@ export default function ResetPasswordPage() {
 
   return (
     <div className="min-h-screen bg-[#07080a] flex items-center justify-center p-4">
-      <SEO title="Reset Password — WeFlix" noSuffix />
+      <SEO title="Réinitialisation du mot de passe — WeFlix" noSuffix />
       
       <div className="w-full max-w-[400px] bg-[#0b0f19]/95 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl shadow-black p-8">
         <div className="flex justify-center items-center gap-2 mb-8">
@@ -85,22 +85,22 @@ export default function ResetPasswordPage() {
             <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mb-2">
               <FaCheckCircle className="text-green-500 text-4xl" />
             </div>
-            <h2 className="text-xl font-bold text-white">Password Reset!</h2>
+            <h2 className="text-xl font-bold text-white">Mot de passe réinitialisé !</h2>
             <p className="text-gray-400 text-sm mb-4">
-              Your password has been successfully updated. You can now log in with your new password.
+              Votre mot de passe a bien été modifié. Vous pouvez maintenant vous connecter avec votre nouveau mot de passe.
             </p>
             <Link
               to="/"
               className="w-full py-3.5 flex justify-center items-center gap-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl shadow-[0_0_20px_rgba(220,38,38,0.3)] transition-all"
             >
-              Go to Homepage
+              Aller à l’accueil
             </Link>
           </div>
         ) : (
           <>
-            <h2 className="text-xl font-bold text-white mb-2 text-center">Set New Password</h2>
+            <h2 className="text-xl font-bold text-white mb-2 text-center">Définir un nouveau mot de passe</h2>
             {email ? (
-                <p className="text-gray-400 text-sm text-center mb-6">for {email}</p>
+                <p className="text-gray-400 text-sm text-center mb-6">pour {email}</p>
             ) : (
                 <div className="mb-6"/>
             )}
@@ -117,7 +117,7 @@ export default function ResetPasswordPage() {
                 to="/"
                 className="w-full py-3.5 flex justify-center items-center bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl transition-all"
               >
-                Back to Homepage
+                Retour à l’accueil
               </Link>
             )}
 
@@ -132,7 +132,7 @@ export default function ResetPasswordPage() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="New Password"
+                    placeholder="Nouveau mot de passe"
                     className="w-full bg-black/20 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 transition-all font-medium text-sm"
                   />
                 </div>
@@ -143,7 +143,7 @@ export default function ResetPasswordPage() {
                   className="w-full py-3.5 flex justify-center items-center gap-2 disabled:opacity-50 text-white font-bold rounded-xl shadow-[0_0_20px_rgba(220,38,38,0.3)] bg-red-600 hover:bg-red-500 transition-all"
                 >
                   {loading && <FaSpinner className="animate-spin" />}
-                  Update Password
+                  Modifier le mot de passe
                 </button>
               </form>
             )}

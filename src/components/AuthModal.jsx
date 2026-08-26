@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import PropTypes from 'prop-types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FaTimes, FaGoogle, FaEnvelope, FaLock, FaUser, FaSpinner, FaExclamationCircle, FaCheckCircle } from 'react-icons/fa';
 import { BiMoviePlay } from 'react-icons/bi';
@@ -7,33 +8,34 @@ import {
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
   signInWithPopup,
-  fetchSignInMethodsForEmail,
   linkWithCredential,
-  EmailAuthProvider,
   sendPasswordResetEmail,
   updateProfile 
 } from 'firebase/auth';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 const FIREBASE_ERRORS = {
-  'auth/invalid-email':               'That email address doesn\'t look right.',
-  'auth/user-not-found':              'No account found with that email.',
-  'auth/wrong-password':              'Incorrect password. Please try again.',
-  'auth/invalid-credential':          'Email or password is incorrect.',
-  'auth/email-already-in-use':        'An account with this email already exists.',
-  'auth/weak-password':               'Password must be at least 6 characters.',
-  'auth/too-many-requests':           'Too many attempts. Please wait a moment and try again.',
-  'auth/network-request-failed':      'Network error. Please check your connection.',
-  'auth/popup-closed-by-user':        'Sign-in popup was closed. Please try again.',
-  'auth/cancelled-popup-request':     'Another sign-in popup is already open.',
-  'auth/popup-blocked':               'Popup was blocked by your browser. Please allow popups and try again.',
-  'auth/user-disabled':               'This account has been disabled. Contact support.',
+  'auth/invalid-email':               'Cette adresse e-mail est invalide.',
+  'auth/user-not-found':              'Aucun compte ne correspond à cette adresse.',
+  'auth/wrong-password':              'Mot de passe incorrect.',
+  'auth/invalid-credential':          'Adresse e-mail ou mot de passe incorrect.',
+  'auth/email-already-in-use':        'Un compte utilise déjà cette adresse e-mail.',
+  'auth/weak-password':               'Le mot de passe doit contenir au moins 6 caractères.',
+  'auth/too-many-requests':           'Trop de tentatives. Veuillez patienter puis réessayer.',
+  'auth/network-request-failed':      'Erreur réseau. Vérifiez votre connexion.',
+  'auth/popup-closed-by-user':        'La fenêtre de connexion a été fermée.',
+  'auth/cancelled-popup-request':     'Une autre fenêtre de connexion est déjà ouverte.',
+  'auth/popup-blocked':               'La fenêtre a été bloquée par votre navigateur.',
+  'auth/user-disabled':               'Ce compte a été désactivé.',
 };
 
 const getFirebaseError = (err) => {
   const code = err?.code || '';
-  return FIREBASE_ERRORS[code] || 'Something went wrong. Please try again.';
+  return FIREBASE_ERRORS[code] || 'Une erreur est survenue. Veuillez réessayer.';
 };
+
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY;
+const EDGE_API_URL = String(import.meta.env.VITE_EDGE_API_URL || '').replace(/\/$/, '');
 
 // Upsert user profile in Firestore (merge so existing data is not overwritten)
 const saveUserToFirestore = async (user) => {
@@ -62,6 +64,7 @@ export default function AuthModal({ isOpen, onClose }) {
   const [pendingGoogleCred, setPendingGoogleCred] = useState(null);
 
   const [verificationSent, setVerificationSent] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState('');
 
   // Cloudflare Turnstile
   const turnstileRef = useRef(null);
@@ -73,15 +76,19 @@ export default function AuthModal({ isOpen, onClose }) {
     const renderWidget = () => {
       if (!turnstileRef.current || !window.turnstile) return;
       if (turnstileWidgetId.current !== null) {
-        try { window.turnstile.remove(turnstileWidgetId.current); } catch (_) {}
+        try { window.turnstile.remove(turnstileWidgetId.current); } catch { /* widget already removed */ }
       }
       turnstileWidgetId.current = window.turnstile.render(turnstileRef.current, {
-        sitekey: '0x4AAAAAADXIPkP3kbxBSU8N',
+        sitekey: TURNSTILE_SITE_KEY,
         theme: 'dark',
+        callback: (token) => setTurnstileToken(token),
+        'expired-callback': () => setTurnstileToken(''),
+        'error-callback': () => setTurnstileToken(''),
       });
     };
 
     // If Turnstile already loaded before this modal opened, render immediately
+    if (!TURNSTILE_SITE_KEY) return undefined;
     if (window._turnstileReady || window.turnstile) {
       setTimeout(renderWidget, 100); // small delay for modal DOM to mount
     } else {
@@ -92,11 +99,28 @@ export default function AuthModal({ isOpen, onClose }) {
     return () => {
       window.removeEventListener('turnstile-ready', renderWidget);
       if (turnstileWidgetId.current !== null && window.turnstile) {
-        try { window.turnstile.remove(turnstileWidgetId.current); } catch (_) {}
+        try { window.turnstile.remove(turnstileWidgetId.current); } catch { /* widget already removed */ }
         turnstileWidgetId.current = null;
       }
     };
   }, [isOpen]);
+
+  const verifyTurnstile = async () => {
+    if (!TURNSTILE_SITE_KEY) throw new Error('Turnstile n’est pas configuré.');
+    if (!turnstileToken) throw new Error('Veuillez terminer la validation anti-robot.');
+    const response = await fetch(`${EDGE_API_URL}/api/turnstile/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: turnstileToken }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.success) throw new Error(result.error || 'Validation anti-robot refusée.');
+  };
+
+  const resetTurnstile = () => {
+    setTurnstileToken('');
+    if (turnstileWidgetId.current !== null && window.turnstile) window.turnstile.reset(turnstileWidgetId.current);
+  };
 
 
   // Clear errors when switching tabs
@@ -130,6 +154,7 @@ export default function AuthModal({ isOpen, onClose }) {
     setLoading(true);
 
     try {
+      await verifyTurnstile();
       if (isLogin) {
         // Sign in with email/password
         const result = await signInWithEmailAndPassword(auth, email, password);
@@ -137,7 +162,7 @@ export default function AuthModal({ isOpen, onClose }) {
         await result.user.reload();
         if (!result.user.emailVerified) {
           await auth.signOut();
-          setError('Please verify your email address before logging in. Check your inbox or spam folder.');
+          setError('Veuillez vérifier votre adresse e-mail avant de vous connecter. Consultez votre boîte de réception ou vos courriers indésirables.');
           return; // Stop early
         }
 
@@ -172,7 +197,8 @@ export default function AuthModal({ isOpen, onClose }) {
       }
       onClose();
     } catch (err) {
-      setError(getFirebaseError(err));
+      setError(err?.code ? getFirebaseError(err) : (err?.message || 'Une erreur est survenue.'));
+      resetTurnstile();
     } finally {
       setLoading(false);
     }
@@ -182,12 +208,14 @@ export default function AuthModal({ isOpen, onClose }) {
     setError('');
     setLoading(true);
     try {
+      await verifyTurnstile();
       const result = await signInWithPopup(auth, googleProvider);
       // Save/update user profile in Firestore
       saveUserToFirestore(result.user).catch(console.error);
       onClose();
     } catch (err) {
-      setError(err.message.replace('Firebase:', '').trim());
+      setError(err?.code ? getFirebaseError(err) : (err?.message || 'Une erreur est survenue.'));
+      resetTurnstile();
     } finally {
       setLoading(false);
     }
@@ -243,7 +271,7 @@ export default function AuthModal({ isOpen, onClose }) {
                       isLogin ? 'bg-red-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'
                     }`}
                   >
-                    Log In
+                    Connexion
                   </button>
                   <button
                     type="button"
@@ -252,7 +280,7 @@ export default function AuthModal({ isOpen, onClose }) {
                       !isLogin ? 'bg-red-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'
                     }`}
                   >
-                    Sign Up
+                    Inscription
                   </button>
                 </div>
 
@@ -279,8 +307,8 @@ export default function AuthModal({ isOpen, onClose }) {
                       className="text-gray-400 text-sm mb-6 text-center"
                     >
                       {isLogin
-                        ? 'Welcome back! Sign in to access your Watchlist.'
-                        : 'Create an account to save movies and sync progress.'}
+                        ? 'Bon retour ! Connectez-vous pour accéder à votre liste.'
+                        : 'Créez un compte pour enregistrer vos films et synchroniser votre progression.'}
                     </motion.p>
                   )}
                 </AnimatePresence>
@@ -295,14 +323,14 @@ export default function AuthModal({ isOpen, onClose }) {
                         className="flex flex-col items-center gap-3 py-4 text-center"
                       >
                         <FaCheckCircle className="text-green-400 text-4xl" />
-                        <p className="text-green-300 font-semibold text-sm">Reset email sent!</p>
-                        <p className="text-gray-500 text-xs">Check your inbox for a password reset link from Firebase.</p>
+                        <p className="text-green-300 font-semibold text-sm">E-mail de réinitialisation envoyé !</p>
+                        <p className="text-gray-500 text-xs">Consultez votre boîte de réception pour obtenir le lien de réinitialisation.</p>
                         <button
                           type="button"
                           onClick={() => { setShowReset(false); setResetSent(false); setError(''); }}
                           className="mt-2 text-sm text-red-400 hover:text-red-300 font-semibold underline underline-offset-2 transition-colors"
                         >
-                          ← Back to Log In
+                          ← Retour à la connexion
                         </button>
                       </motion.div>
                     ) : (
@@ -316,7 +344,7 @@ export default function AuthModal({ isOpen, onClose }) {
                             required
                             value={resetEmail}
                             onChange={(e) => setResetEmail(e.target.value)}
-                            placeholder="Your email address"
+                            placeholder="Votre adresse e-mail"
                             className="w-full bg-black/20 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 transition-all font-medium text-sm"
                           />
                         </div>
@@ -326,14 +354,14 @@ export default function AuthModal({ isOpen, onClose }) {
                           className="w-full py-3.5 flex justify-center items-center gap-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold rounded-xl shadow-[0_0_20px_rgba(220,38,38,0.3)] transition-all active:scale-[0.98]"
                         >
                           {loading && <FaSpinner className="animate-spin" />}
-                          Send Reset Link
+                          Envoyer le lien
                         </button>
                         <button
                           type="button"
                           onClick={() => { setShowReset(false); setError(''); }}
                           className="w-full text-sm text-gray-500 hover:text-gray-300 font-semibold transition-colors py-1"
                         >
-                          ← Back to Log In
+                          ← Retour à la connexion
                         </button>
                       </>
                     )}
@@ -345,17 +373,17 @@ export default function AuthModal({ isOpen, onClose }) {
                     className="flex flex-col items-center gap-3 py-4 text-center"
                   >
                     <FaCheckCircle className="text-green-400 text-4xl" />
-                    <h2 className="text-white font-bold text-lg mt-2">Verify your email</h2>
+                    <h2 className="text-white font-bold text-lg mt-2">Vérifiez votre adresse e-mail</h2>
                     <p className="text-gray-400 text-sm">
-                      We've sent a verification link to <strong className="text-white">{email}</strong>. 
-                      Please check your inbox and click the link to activate your account.
+                      Un lien de vérification a été envoyé à <strong className="text-white">{email}</strong>.
+                      Consultez votre boîte de réception et cliquez sur le lien pour activer votre compte.
                     </p>
                     <button
                       type="button"
                       onClick={() => handleSwitchTab(true)}
                       className="mt-4 w-full py-3.5 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl transition-all"
                     >
-                      Return to Log In
+                      Retour à la connexion
                     </button>
                   </motion.div>
                 ) : (
@@ -375,7 +403,7 @@ export default function AuthModal({ isOpen, onClose }) {
                         required={!isLogin}
                         value={name}
                         onChange={(e) => setName(e.target.value)}
-                        placeholder="Full Name"
+                        placeholder="Nom complet"
                         className="w-full bg-black/20 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 transition-all font-medium text-sm"
                       />
                     </motion.div>
@@ -390,7 +418,7 @@ export default function AuthModal({ isOpen, onClose }) {
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="Email Address"
+                      placeholder="Adresse e-mail"
                       className="w-full bg-black/20 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 transition-all font-medium text-sm"
                     />
                   </div>
@@ -404,7 +432,7 @@ export default function AuthModal({ isOpen, onClose }) {
                       required
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Password"
+                      placeholder="Mot de passe"
                       className="w-full bg-black/20 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 transition-all font-medium text-sm"
                     />
                   </div>
@@ -416,15 +444,19 @@ export default function AuthModal({ isOpen, onClose }) {
                         onClick={() => { setShowReset(true); setResetEmail(email); setError(''); }}
                         className="text-xs text-gray-500 hover:text-red-400 font-semibold underline underline-offset-2 transition-colors"
                       >
-                        Forgot password?
+                        Mot de passe oublié ?
                       </button>
                     </div>
                   )}
-                  <div ref={turnstileRef} className="flex justify-center" />
+                  {TURNSTILE_SITE_KEY ? (
+                    <div ref={turnstileRef} className="flex justify-center" />
+                  ) : (
+                    <p className="text-center text-xs text-amber-400">Protection anti-robot non configurée.</p>
+                  )}
 
                   <button
                     type="submit"
-                    disabled={loading}
+                    disabled={loading || !TURNSTILE_SITE_KEY || !turnstileToken}
                     className={`w-full py-3.5 mt-2 flex justify-center items-center gap-2 disabled:opacity-50 text-white font-bold rounded-xl transition-all active:scale-[0.98] ${
                       pendingGoogleCred
                         ? 'bg-blue-600 hover:bg-blue-500 shadow-[0_0_20px_rgba(37,99,235,0.3)]'
@@ -433,8 +465,8 @@ export default function AuthModal({ isOpen, onClose }) {
                   >
                     {loading && <FaSpinner className="animate-spin" />}
                     {pendingGoogleCred
-                      ? <><FaGoogle /> Sign In & Link Google</>
-                      : (isLogin ? 'Continue' : 'Create Account')
+                      ? <><FaGoogle /> Se connecter et associer Google</>
+                      : (isLogin ? 'Continuer' : 'Créer un compte')
                     }
                   </button>
                 </form>
@@ -443,7 +475,7 @@ export default function AuthModal({ isOpen, onClose }) {
                 {/* Divider */}
                 <div className="flex items-center gap-3 my-6">
                   <div className="flex-1 h-px bg-white/10" />
-                  <span className="text-xs text-gray-500 uppercase font-semibold">Or</span>
+                  <span className="text-xs text-gray-500 uppercase font-semibold">Ou</span>
                   <div className="flex-1 h-px bg-white/10" />
                 </div>
 
@@ -455,7 +487,7 @@ export default function AuthModal({ isOpen, onClose }) {
                   className="w-full flex items-center justify-center gap-3 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold rounded-xl transition-all active:scale-[0.98] disabled:opacity-50"
                 >
                   <FaGoogle className="text-red-500" />
-                  Continue with Google
+                  Continuer avec Google
                 </button>
               </div>
             </motion.div>
@@ -465,3 +497,8 @@ export default function AuthModal({ isOpen, onClose }) {
     </AnimatePresence>
   );
 }
+
+AuthModal.propTypes = {
+  isOpen: PropTypes.bool.isRequired,
+  onClose: PropTypes.func.isRequired,
+};

@@ -5,19 +5,20 @@ import {
   BiHomeAlt,
   BiMoviePlay,
   BiTv,
+  BiGridAlt,
   BiBookmark
 } from 'react-icons/bi';
 import { FaPlay, FaSignOutAlt, FaUserCircle } from 'react-icons/fa';
-import { GENRES, SPECIAL_CATEGORIES } from './tmdb';
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth } from "../../firebase";
 
 const NAV_ITEMS = [
-  { id: 'search', icon: BiSearch, action: 'navigate', label: 'Search' },
-  { id: 'home', icon: BiHomeAlt, action: 'navigate', label: 'Home' },
-  { id: 'movies', icon: BiMoviePlay, action: 'navigate', label: 'Movies' },
-  { id: 'series', icon: BiTv, action: 'navigate', label: 'TV Shows' },
-  { id: 'watchlist', icon: BiBookmark, action: 'navigate', label: 'Watchlist' },
+  { id: 'search', icon: BiSearch, action: 'navigate', label: 'Rechercher' },
+  { id: 'home', icon: BiHomeAlt, action: 'navigate', label: 'Accueil' },
+  { id: 'catalogue', icon: BiGridAlt, action: 'navigate', label: 'Catalogue' },
+  { id: 'movies', icon: BiMoviePlay, action: 'navigate', label: 'Films' },
+  { id: 'series', icon: BiTv, action: 'navigate', label: 'Séries' },
+  { id: 'watchlist', icon: BiBookmark, action: 'navigate', label: 'Ma liste' },
 ];
 
 // Read cached auth flag from localStorage for instant render
@@ -25,7 +26,7 @@ const getCachedUser = () => {
   try { return JSON.parse(localStorage.getItem('weflix_user')) ?? null; } catch { return null; }
 };
 
-function Sidebar({ activePage, onNavigate, selectedGenreId, onGenreSelect, onOpenAuthModal }) {
+function Sidebar({ activePage, onNavigate, onOpenAuthModal }) {
   const [user, setUser] = useState(getCachedUser);
 
   useEffect(() => {
@@ -49,14 +50,8 @@ function Sidebar({ activePage, onNavigate, selectedGenreId, onGenreSelect, onOpe
     }
   };
 
-  const ACTIVE_MAP = { search: 'search', movies: 'movies', series: 'series', watchlist: 'watchlist', home: 'home' };
+  const ACTIVE_MAP = { search: 'search', catalogue: 'catalogue', movies: 'movies', series: 'series', watchlist: 'watchlist', home: 'home' };
   const activeId = ACTIVE_MAP[activePage] ?? 'home';
-
-  const showCategories = activePage === 'movies' || activePage === 'series';
-  const genreType = activePage === 'movies' ? 'movie' : 'tv';
-  const allCategories = showCategories
-    ? [...GENRES[genreType], ...SPECIAL_CATEGORIES[genreType]].sort((a, b) => a.name.localeCompare(b.name))
-    : [];
 
   return (
     <aside className="
@@ -92,8 +87,8 @@ function Sidebar({ activePage, onNavigate, selectedGenreId, onGenreSelect, onOpe
       </div>
 
       {/* Nav items */}
-      <nav className={`flex flex-col gap-1 px-[10px] ${showCategories ? 'shrink-0 pb-3' : 'flex-1 pb-6'}`}>
-        {NAV_ITEMS.map(({ id, icon: Icon, action, label }) => {
+      <nav className="flex flex-1 flex-col gap-1 px-[10px] pb-6">
+        {NAV_ITEMS.map(({ id, icon: Icon, label }) => {
           const isActive = activeId === id;
           return (
             <button
@@ -119,60 +114,14 @@ function Sidebar({ activePage, onNavigate, selectedGenreId, onGenreSelect, onOpe
         })}
       </nav>
 
-      {/* Categories section — only on movies / series */}
-      {showCategories && (
-        <>
-          <div className="mx-[18px] h-px bg-gradient-to-r from-transparent via-white/10 to-transparent shrink-0" />
-          <div className="flex-1 flex flex-col min-h-0 pt-4 pb-4">
-            {/* Section label */}
-            <div className="px-[18px] mb-2 shrink-0">
-              <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 delay-75 text-[11px] font-bold tracking-[0.22em] uppercase text-gray-500 whitespace-nowrap">
-                Genres
-              </span>
-            </div>
-            {/* Scrollable genre list */}
-            <div className="flex-1 overflow-y-auto hide-scrollbar px-[10px] pt-1 flex flex-col gap-0.5">
-              {allCategories.map((genre) => {
-                const isActiveGenre = selectedGenreId === genre.id;
-                return (
-                  <button
-                    key={genre.id}
-                    onClick={() => onGenreSelect && onGenreSelect(genre.id)}
-                    title={genre.name}
-                    className={`
-                      relative flex items-center gap-4 px-4 py-2.5 rounded-2xl
-                      w-full text-[13px] font-medium whitespace-nowrap
-                      border-2 transition-colors duration-200 focus:outline-none text-left
-                      ${isActiveGenre
-                        ? 'border-red-500/30 bg-red-500/15 text-white'
-                        : 'border-transparent text-gray-500 hover:text-gray-200 hover:bg-white/5 hover:border-transparent'
-                      }
-                    `}
-                  >
-                    <span className={`
-                      w-2 h-2 rounded-full shrink-0 transition-all duration-200
-                      ${isActiveGenre ? 'bg-red-400' : 'bg-gray-700'}
-                    `} />
-                    <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 delay-75">
-                      {genre.name}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Bottom spacer */}
-      {!showCategories && <div className="h-6 shrink-0" />}
+      <div className="h-6 shrink-0" />
 
       {/* User profile / Logout */}
       <div className="mt-auto pt-4 pb-6 px-[10px] shrink-0 border-t border-white/5 relative z-10 bg-gray-900/95">
         {user ? (
           <button
             onClick={handleLogout}
-            title="Log Out"
+            title="Se déconnecter"
             className="
               relative flex items-center gap-4 px-4 py-3.5 rounded-2xl
               w-full whitespace-nowrap
@@ -182,13 +131,13 @@ function Sidebar({ activePage, onNavigate, selectedGenreId, onGenreSelect, onOpe
             <FaSignOutAlt className="text-[24px] shrink-0" />
             <div className="flex flex-col text-left opacity-0 group-hover:opacity-100 transition-opacity duration-200 delay-75">
               <span className="text-white line-clamp-1 text-[13px] font-bold">{user.displayName || user.email?.split('@')[0]}</span>
-              <span className="text-red-400 text-[10px] font-bold uppercase tracking-wider">Log Out</span>
+              <span className="text-red-400 text-[10px] font-bold uppercase tracking-wider">Se déconnecter</span>
             </div>
           </button>
         ) : (
           <button
             onClick={onOpenAuthModal}
-            title="Log In"
+            title="Se connecter"
             className="
               relative flex items-center gap-4 px-4 py-3.5 rounded-2xl
               w-full text-[14px] font-medium whitespace-nowrap
@@ -197,7 +146,7 @@ function Sidebar({ activePage, onNavigate, selectedGenreId, onGenreSelect, onOpe
           >
             <FaUserCircle className="text-[24px] shrink-0" />
             <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 delay-75 w-24 overflow-hidden">
-              Sign In
+              Se connecter
             </span>
           </button>
         )}
@@ -209,8 +158,6 @@ function Sidebar({ activePage, onNavigate, selectedGenreId, onGenreSelect, onOpe
 Sidebar.propTypes = {
   activePage: PropTypes.string.isRequired,
   onNavigate: PropTypes.func.isRequired,
-  selectedGenreId: PropTypes.number,
-  onGenreSelect: PropTypes.func,
   onOpenAuthModal: PropTypes.func
 };
 

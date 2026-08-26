@@ -2,6 +2,16 @@
 @import 'tailwindcss/components';
 @import 'tailwindcss/utilities';
 
+@layer components {
+  .admin-input {
+    @apply w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none transition focus:border-red-500/60 focus:ring-4 focus:ring-red-500/10;
+  }
+
+  .filter-summary-chip {
+    @apply flex shrink-0 items-center gap-1.5 rounded-full border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-[11px] font-semibold text-red-300 transition-colors hover:border-red-500/40 hover:bg-red-500/15;
+  }
+}
+
 :root {
   --motion-fast: 160ms;
   --motion-base: 220ms;

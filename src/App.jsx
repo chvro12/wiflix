@@ -1,6 +1,4 @@
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
-import { Analytics } from '@vercel/analytics/react';
-import { SpeedInsights } from '@vercel/speed-insights/react';
 import ParentComponent from './pages/Home/ParentComponent';
 import HomePage from './pages/Home/HomePage';
 import Movie from './pages/Home/Movie/Movie';
@@ -13,11 +11,17 @@ import ResetPasswordPage from './pages/Home/ResetPasswordPage';
 import EmailVerificationPage from './pages/Home/EmailVerificationPage';
 import PersonPage from './pages/Home/Person/PersonPage';
 import AuthActionPage from './pages/Home/AuthActionPage';
+import AccessPage from './pages/AccessPage';
+import AdminPage from './pages/AdminPage';
+import SiteAnalytics from './components/SiteAnalytics';
 
 function App() {
   return (
-    <Router>
+    <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <SiteAnalytics />
       <Routes>
+        <Route path="/acces" element={<AccessPage />} />
+        <Route path="/admin" element={<AdminPage />} />
         <Route element={<ParentComponent />}>
           <Route index element={<HomePage />} />
           <Route path="/movies" element={<Movie />} />
@@ -29,6 +33,7 @@ function App() {
           <Route path="/movies/watch/:slug" element={<MovieDetails />} />
           <Route path="/series/watch/:slug" element={<TvDetails />} />
           <Route path="/search" element={<SearchPage />} />
+          <Route path="/catalogue" element={<SearchPage />} />
           <Route path="/person/:id/:slug" element={<PersonPage />} />
           <Route path="/watchlist" element={<WatchlistPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -39,8 +44,6 @@ function App() {
           <Route path="/tv/:slug" element={<TvDetails />} />
         </Route>
       </Routes>
-      <Analytics />
-      <SpeedInsights />
     </Router>
   );
 }

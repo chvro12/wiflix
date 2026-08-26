@@ -55,7 +55,7 @@ export default function CastRow({ cast }) {
       <div className="max-w-7xl mx-auto">
         <h3 className="text-xl md:text-2xl font-bold text-white mb-6 tracking-tight flex items-center gap-3">
           <span className="w-1.5 h-6 bg-red-500 rounded-full inline-block"></span>
-          Top Cast
+          Distribution principale
         </h3>
         
         <div

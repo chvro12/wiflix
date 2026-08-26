@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { toDetailPath } from './urlUtils';
 import { FaPlay, FaInfoCircle, FaStar } from 'react-icons/fa';
 import { BiCalendar } from 'react-icons/bi';
+import { isCatalogueVisible } from './mediaAvailability';
+import { fetchR2Catalogue } from '../../utils/r2Catalogue';
 
 const API_KEY  = import.meta.env.VITE_TMDB_API;
 const BASE_URL = import.meta.env.VITE_BASE_URL;
@@ -12,12 +14,12 @@ const INTERVAL = 7000;
 
 /* TMDB genre ID → label */
 const GENRE_MAP = {
-  28: 'Action', 12: 'Adventure', 16: 'Animation', 35: 'Comedy', 80: 'Crime',
-  99: 'Documentary', 18: 'Drama', 10751: 'Family', 14: 'Fantasy', 36: 'History',
-  27: 'Horror', 10402: 'Music', 9648: 'Mystery', 10749: 'Romance',
-  878: 'Sci-Fi', 53: 'Thriller', 10752: 'War', 37: 'Western',
-  10759: 'Action & Adventure', 10762: 'Kids', 10765: 'Sci-Fi & Fantasy',
-  10768: 'War & Politics',
+  28: 'Action', 12: 'Aventure', 16: 'Animation', 35: 'Comédie', 80: 'Crime',
+  99: 'Documentaire', 18: 'Drame', 10751: 'Familial', 14: 'Fantastique', 36: 'Histoire',
+  27: 'Horreur', 10402: 'Musique', 9648: 'Mystère', 10749: 'Romance',
+  878: 'Science-fiction', 53: 'Thriller', 10752: 'Guerre', 37: 'Western',
+  10759: 'Action et aventure', 10762: 'Jeunesse', 10765: 'Science-fiction et fantastique',
+  10768: 'Guerre et politique',
 };
 
 const useTrending = () => {
@@ -30,13 +32,14 @@ const useTrending = () => {
       try {
         const url = new URL(`${BASE_URL}/trending/all/week`);
         url.searchParams.append('api_key', API_KEY);
-        url.searchParams.append('language', 'en-US');
+        url.searchParams.append('language', 'fr-FR');
         const res  = await fetch(url);
         const data = await res.json();
+        const catalogue = await fetchR2Catalogue();
         if (!cancelled) {
           setItems(
             (data.results ?? [])
-              .filter(i => i.backdrop_path && (i.title || i.name) && i.overview)
+              .filter(i => i.backdrop_path && (i.title || i.name) && i.overview && isCatalogueVisible(i, i.media_type, catalogue))
               .slice(0, 6)
           );
         }
@@ -103,7 +106,7 @@ export default function HeroBanner() {
 
         {/* Subtle loading label */}
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20">
-          <p className="text-[10px] uppercase tracking-[0.22em] text-gray-500 font-semibold">Loading Highlights</p>
+          <p className="text-[10px] uppercase tracking-[0.22em] text-gray-500 font-semibold">Chargement de la sélection</p>
         </div>
       </div>
     );
@@ -147,10 +150,10 @@ export default function HeroBanner() {
         <div className="flex items-center gap-3 mb-4">
           <span className="inline-flex items-center gap-1.5 bg-red-600/20 border border-red-500/40 text-red-400 text-[11px] font-bold px-3 py-1 rounded-full uppercase tracking-widest">
             <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
-            Trending
+            Tendance
           </span>
           <span className="text-gray-400 text-[11px] font-semibold uppercase tracking-widest">
-            {isTV ? 'TV Series' : 'Movie'}
+            {isTV ? 'Série' : 'Film'}
           </span>
         </div>
 
@@ -199,15 +202,15 @@ export default function HeroBanner() {
             className="flex items-center gap-2.5 bg-red-600 hover:bg-red-500 text-white font-bold px-7 py-3 rounded-full transition-all duration-200 hover:scale-105 shadow-lg shadow-red-700/40 text-sm"
           >
             <FaPlay className="text-xs" />
-            Play Now
+            Regarder
           </button>
           <button
             onClick={handlePlay}
             className="flex items-center gap-2 bg-white/[0.1] hover:bg-white/[0.18] backdrop-blur border border-white/[0.15] text-white font-semibold px-6 py-3 rounded-full transition-all duration-200 text-sm"
           >
             <FaInfoCircle className="text-sm" />
-            <span className="hidden sm:inline">More Info</span>
-            <span className="sm:hidden">Details</span>
+            <span className="hidden sm:inline">Plus d’informations</span>
+            <span className="sm:hidden">Détails</span>
           </button>
         </div>
       </div>
@@ -219,7 +222,7 @@ export default function HeroBanner() {
             <button
               key={i}
               onClick={() => { if (i !== active) goTo(i); }}
-              aria-label={`Slide ${i + 1}`}
+              aria-label={`Diapositive ${i + 1}`}
               className="relative overflow-hidden rounded-full transition-all duration-300"
               style={{ width: i === active ? 28 : 8, height: 8 }}
             >

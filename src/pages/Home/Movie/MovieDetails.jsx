@@ -4,15 +4,18 @@ import PropTypes from "prop-types";
 import { fetchMovieDetails, fetchRelatedMovies } from "../Fetcher";
 import { getIdFromDetailSlug, toDetailPath } from "../urlUtils";
 import { saveToContinueWatching } from "../../../utils/continueWatching";
-import { FaRedo, FaStar, FaArrowLeft, FaInfoCircle, FaBookmark } from "react-icons/fa";
+import { FaRedo, FaStar, FaArrowLeft, FaBookmark, FaPlay } from "react-icons/fa";
 import { BiCalendar, BiTime, BiGlobe } from "react-icons/bi";
 import DetailPageSkeleton from "../reused/DetailPageSkeleton";
 import VideoPlayer from "./VideoPlayer";
+import { scheduleMediaPrewarm } from "../../../utils/mediaPrewarm";
 import SEO from "../SEO";
 import ContentCard from "../ContentCard";
-import CastRow from "../reused/CastRow";
 import AuthModal from "../../../components/AuthModal";
+import TrailerButton from "../../../components/TrailerButton";
 import { useWatchlist } from "../../../context/WatchlistContext";
+import { isMovieUpcoming } from "../mediaAvailability";
+import { fetchR2Catalogue, isR2Streamable } from "../../../utils/r2Catalogue";
 
 const MemoizedVideoPlayer = memo(VideoPlayer);
 
@@ -32,10 +35,20 @@ const MovieDetails = ({ movieId: movieIdProp }) => {
   const [related,      setRelated]      = useState([]);
   const [isDraggingRelated, setIsDraggingRelated] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [playerStarted, setPlayerStarted] = useState(false);
   const { user, watchlistIds, toggleWatchlist: ctxToggleWatchlist } = useWatchlist();
   const inWatchlist = movie?.id ? watchlistIds.has(String(movie.id)) : false;
+  const hasStarted = Boolean(movie?.id && (() => {
+    try {
+      const items = JSON.parse(localStorage.getItem('wf_cw_cache_items') || '[]');
+      return Array.isArray(items) && items.some((item) => String(item.id) === String(movie.id) && item.mediaType === 'movie');
+    } catch {
+      return false;
+    }
+  })());
 
   const relatedListRef = useRef(null);
+  const playerSectionRef = useRef(null);
   const relatedDragStateRef = useRef({ active: false, startX: 0, startScrollLeft: 0, moved: false });
   const suppressRelatedClickRef = useRef(false);
 
@@ -48,6 +61,7 @@ const MovieDetails = ({ movieId: movieIdProp }) => {
     setShowOverview(false);
     setIsDraggingRelated(false);
     setIsAuthModalOpen(false);
+    setPlayerStarted(false);
     suppressRelatedClickRef.current = false;
   }, [movieId]);
 
@@ -68,17 +82,29 @@ const MovieDetails = ({ movieId: movieIdProp }) => {
         fetchMovieDetails(movieId),
         fetchRelatedMovies(movieId),
       ]);
+      const catalogue = await fetchR2Catalogue();
+      if (!isR2Streamable(data, 'movie', catalogue)) {
+        navigate('/movies', { replace: true });
+        return;
+      }
       setMovie(data);
-      setRelated((relatedData ?? []).filter((item) => item?.id && item.id !== data.id).slice(0, 18));
+      setRelated((relatedData ?? [])
+        .filter((item) => item?.id && item.id !== data.id && !isMovieUpcoming(item) && isR2Streamable(item, 'movie', catalogue))
+        .slice(0, 18));
     } catch {
-      setError("Failed to load movie. Please try again.");
+      setError("Impossible de charger le film. Veuillez réessayer.");
     } finally {
       setLoading(false);
       setRetrying(false);
     }
-  }, [movieId]);
+  }, [movieId, navigate]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!movie?.id || playerStarted || isMovieUpcoming(movie)) return undefined;
+    return scheduleMediaPrewarm({ mediaType: 'movie', mediaId: movie.id });
+  }, [movie, playerStarted]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'auto' });
@@ -86,7 +112,7 @@ const MovieDetails = ({ movieId: movieIdProp }) => {
 
   // Save to "Continue Watching" tracking
   useEffect(() => {
-    if (!movie || !user?.uid) return;
+    if (!playerStarted || !movie || !user?.uid) return;
     saveToContinueWatching(user.uid, {
       id: movie.id,
       mediaType: 'movie',
@@ -95,7 +121,14 @@ const MovieDetails = ({ movieId: movieIdProp }) => {
       vote_average: movie.vote_average,
       release_date: movie.release_date,
     });
-  }, [movie, user]);
+  }, [playerStarted, movie, user]);
+
+  const startPlayback = () => {
+    setPlayerStarted(true);
+    requestAnimationFrame(() => {
+      playerSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  };
 
   useEffect(() => {
     if (!movie?.id) return;
@@ -189,7 +222,7 @@ const MovieDetails = ({ movieId: movieIdProp }) => {
           className="w-full flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-semibold px-6 py-3 rounded-xl transition-all shadow-lg shadow-red-600/20"
         >
           <FaRedo className={retrying ? "animate-spin" : ""} />
-          {retrying ? "Retrying…" : "Retry"}
+          {retrying ? "Nouvelle tentative…" : "Réessayer"}
         </button>
       </div>
     </div>
@@ -202,6 +235,10 @@ const MovieDetails = ({ movieId: movieIdProp }) => {
   const rating   = movie.vote_average > 0 ? movie.vote_average.toFixed(1) : null;
   const genres   = (movie.genres ?? []).slice(0, 4);
   const overview = movie.overview ?? "";
+  const upcoming = isMovieUpcoming(movie);
+  const formattedReleaseDate = movie.release_date
+    ? new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${movie.release_date}T12:00:00Z`))
+    : null;
   const truncated = overview.length > 280 && !showOverview
     ? overview.slice(0, 280) + "…"
     : overview;
@@ -209,11 +246,11 @@ const MovieDetails = ({ movieId: movieIdProp }) => {
   return (
     <div className="min-h-screen bg-[#07080a] text-gray-200 selection:bg-red-500/30">
       <SEO
-        title={`${movie.title}${year ? ` (${year})` : ''} — Watch Free on WeFlix`}
+        title={`${movie.title}${year ? ` (${year})` : ''} — Voir sur WeFlix`}
         description={
           movie.overview
-            ? `${movie.overview.slice(0, 150).trim()}… Watch ${movie.title} free on WeFlix.`
-            : `Watch ${movie.title} free on WeFlix.`
+            ? `${movie.overview.slice(0, 150).trim()}… Voir ${movie.title} sur WeFlix.`
+            : `Voir ${movie.title} sur WeFlix.`
         }
         image={
           movie.backdrop_path
@@ -268,7 +305,7 @@ const MovieDetails = ({ movieId: movieIdProp }) => {
             className="group flex items-center gap-2 bg-black/30 hover:bg-black/50 backdrop-blur-md border border-white/10 text-gray-200 hover:text-white text-sm font-medium px-5 py-2.5 rounded-full transition-all duration-300"
           >
             <FaArrowLeft className="group-hover:-translate-x-1 transition-transform duration-300" />
-            <span>Back</span>
+            <span>Retour</span>
           </button>
         </div>
 
@@ -301,7 +338,7 @@ const MovieDetails = ({ movieId: movieIdProp }) => {
             <div className="flex flex-wrap items-center gap-4 text-sm font-medium text-gray-300 mb-6 drop-shadow-md">
               {year && <span className="flex items-center gap-1.5"><BiCalendar className="text-gray-400 text-base" /> {year}</span>}
               {runtime && <span className="flex items-center gap-1.5"><BiTime className="text-gray-400 text-base" /> {runtime}</span>}
-              {rating && <span className="flex items-center gap-1.5"><FaStar className="text-yellow-500 text-base" /> {rating}</span>}
+              {rating && <span className="flex items-center gap-1.5"><FaStar className="text-yellow-500 text-base" /> {rating}/10 <span className="text-gray-500">({movie.vote_count.toLocaleString('fr-FR')} votes)</span></span>}
             </div>
 
             {genres.length > 0 && (
@@ -316,6 +353,16 @@ const MovieDetails = ({ movieId: movieIdProp }) => {
 
             {/* Actions */}
             <div className="flex flex-wrap gap-4 mb-6">
+               {!upcoming && (
+                 <button
+                   onClick={startPlayback}
+                   className="flex items-center gap-2 rounded-xl bg-white px-7 py-3 font-bold text-black transition-all hover:bg-gray-200 active:scale-[0.98]"
+                 >
+                   <FaPlay className="text-sm" />
+                   {hasStarted ? 'Reprendre' : 'Lecture'}
+                 </button>
+               )}
+               <TrailerButton mediaType="movie" mediaId={movie.id} title={movie.title} />
                <button
                  onClick={toggleWatchlist}
                  className={`flex items-center gap-2 backdrop-blur-md text-white font-bold px-6 py-3 rounded-xl transition-all active:scale-[0.98] ${
@@ -325,7 +372,7 @@ const MovieDetails = ({ movieId: movieIdProp }) => {
                  }`}
                >
                  <FaBookmark className={inWatchlist ? "text-red-400" : ""} /> 
-                 {inWatchlist ? "Remove from Watchlist" : "Add to Watchlist"}
+                 {inWatchlist ? "Retirer de ma liste" : "Ajouter à ma liste"}
                </button>
             </div>
 
@@ -339,7 +386,7 @@ const MovieDetails = ({ movieId: movieIdProp }) => {
                     onClick={() => setShowOverview(p => !p)}
                     className="mt-3 text-white font-semibold hover:text-red-400 transition-colors text-sm underline underline-offset-4"
                   >
-                    {showOverview ? "Show Less" : "Read More"}
+                    {showOverview ? "Réduire" : "Lire la suite"}
                   </button>
                 )}
               </div>
@@ -349,40 +396,15 @@ const MovieDetails = ({ movieId: movieIdProp }) => {
       </div>
 
       {/* ── PLAYER & EXTRA CONTENT ── */}
-      <div className="relative z-20 max-w-7xl mx-auto px-4 sm:px-6 md:px-12 -mt-4 md:-mt-10 mb-20">
-        
-        {/* Video Player Container */}
-        <div className="relative">
-          {/* Subtle Video Player Glow Backdrop */}
-          <div className="absolute -inset-1 bg-gradient-to-r from-red-600/30 to-blue-600/30 blur-2xl opacity-50 z-0 rounded-2xl md:rounded-[2rem]"></div>
-          
-          <div className="relative z-10 bg-[#0f1117]/80 backdrop-blur-xl border border-white/5 rounded-2xl md:rounded-[2rem] p-2 md:p-4 shadow-2xl mb-6 ring-1 ring-white/5">
-            <MemoizedVideoPlayer key={movieId} movieId={movieId} title={movie.title} />
+      {playerStarted && !upcoming && (
+        <div className="relative z-20 max-w-7xl mx-auto px-4 sm:px-6 md:px-12 -mt-4 md:-mt-10 mb-12">
+          <div ref={playerSectionRef} className="relative scroll-mt-24">
+            <div className="absolute -inset-1 bg-gradient-to-r from-red-600/30 to-blue-600/30 blur-2xl opacity-50 z-0 rounded-2xl md:rounded-[2rem]"></div>
+            <div className="relative z-10 bg-[#0f1117]/80 backdrop-blur-xl border border-white/5 rounded-2xl md:rounded-[2rem] p-2 md:p-4 shadow-2xl mb-6 ring-1 ring-white/5">
+              <MemoizedVideoPlayer key={movieId} movieId={movieId} title={movie.title} />
+            </div>
           </div>
         </div>
-
-
-        {/* Info Banner */}
-        <div className="flex items-start gap-4 bg-blue-900/10 border border-blue-500/20 rounded-2xl p-4 md:p-5 mx-2 md:mx-0">
-          <FaInfoCircle className="text-blue-400 text-xl shrink-0 mt-0.5" />
-          <p className="text-blue-200/70 text-sm leading-relaxed">
-            For the best ad-free streaming experience, we highly recommend using {" "}
-            <a
-              href="https://ublockorigin.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-400 font-semibold underline underline-offset-2 hover:text-blue-300 transition-colors"
-            >
-              uBlock Origin
-            </a>
-            . Enjoy uninterrupted playback.
-          </p>
-        </div>
-      </div>
-
-      {/* ── CAST & CREW ── */}
-      {movie.credits?.cast && movie.credits.cast.length > 0 && (
-        <CastRow cast={movie.credits.cast} />
       )}
 
       {/* ── RELATED TITLES ── */}
@@ -391,7 +413,7 @@ const MovieDetails = ({ movieId: movieIdProp }) => {
           <div className="max-w-7xl mx-auto">
             <h3 className="text-xl md:text-2xl font-bold text-white mb-6 tracking-tight flex items-center gap-3">
               <span className="w-1.5 h-6 bg-red-500 rounded-full inline-block"></span>
-              More Like This
+              Titres similaires
             </h3>
             
             <div
@@ -431,7 +453,7 @@ const MovieDetails = ({ movieId: movieIdProp }) => {
             <span>© {new Date().getFullYear()} WeFlix</span>
             <span className="mx-2 opacity-50">|</span>
             <span>
-              Data by{' '}
+              Données fournies par{' '}
               <a href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors font-medium">
                 TMDB
               </a>
@@ -451,5 +473,3 @@ MovieDetails.propTypes = {
 };
 
 export default memo(MovieDetails);
-
-

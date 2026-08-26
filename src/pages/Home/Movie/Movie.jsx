@@ -8,11 +8,11 @@ import { buildBrowsePath, getCategoryBySlug, getSortByFromSlug } from '../urlFil
 import SEO from '../SEO';
 
 const SORT_OPTIONS = [
-  { value: 'popularity.desc',          label: 'Most Popular' },
-  { value: 'vote_average.desc',         label: 'Top Rated' },
-  { value: 'primary_release_date.desc', label: 'Newest' },
-  { value: 'primary_release_date.asc',  label: 'Oldest' },
-  { value: 'revenue.desc',              label: 'Highest Grossing' },
+  { value: 'popularity.desc',          label: 'Les plus populaires' },
+  { value: 'vote_average.desc',         label: 'Les mieux notés' },
+  { value: 'primary_release_date.desc', label: 'Les plus récents' },
+  { value: 'primary_release_date.asc',  label: 'Les plus anciens' },
+  { value: 'revenue.desc',              label: 'Meilleures recettes' },
 ];
 
 function Movie() {
@@ -30,7 +30,7 @@ function Movie() {
   const sortBy = sortSlug ? sortFromPath : (querySortBy || 'popularity.desc');
 
   const allCategories = [
-    { id: null, name: 'Trending' },
+    { id: null, name: 'Tendances' },
     ...[...GENRES.movie, ...SPECIAL_CATEGORIES.movie].sort((a, b) => a.name.localeCompare(b.name)),
   ];
 
@@ -70,11 +70,11 @@ function Movie() {
   return (
     <div className="flex flex-col min-h-screen">
       <SEO
-        title={genre ? `${genre.name} Movies` : 'Movies'}
+        title={genre ? `Films ${genre.name.toLowerCase()}` : 'Films'}
         description={
           genre
-            ? `Browse and stream ${genre.name} movies free on WeFlix. Discover the best ${genre.name.toLowerCase()} films, from classics to new releases.`
-            : 'Browse and stream trending movies free on WeFlix. Discover the most popular, top-rated, and newest films across all genres.'
+            ? `Parcourez les films ${genre.name.toLowerCase()} sur WeFlix, des classiques aux nouveautés.`
+            : 'Parcourez les films tendance sur WeFlix et découvrez les contenus populaires, les mieux notés et les nouveautés de tous les genres.'
         }
         url={`https://www.weflix.app${buildBrowsePath('movie', genreId)}`}
       />
@@ -88,11 +88,11 @@ function Movie() {
             </div>
             <div className="flex flex-col">
               <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight leading-none">
-                Movies
+                Films
               </h1>
               {genre ? (
                 <div className="flex items-center gap-2 mt-1.5">
-                  <span className="text-gray-400 text-[13px] font-medium leading-none">Browsing</span>
+                  <span className="text-gray-400 text-[13px] font-medium leading-none">Genre</span>
                   <span className="px-2 py-0.5 rounded shadow-sm bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-bold tracking-wider uppercase leading-none">
                     {genre.name}
                   </span>
@@ -100,9 +100,9 @@ function Movie() {
               ) : (
                 <div className="flex items-center gap-2 mt-1.5">
                   <span className="px-2 py-0.5 rounded shadow-sm bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-bold tracking-wider uppercase leading-none">
-                    Trending
+                    Tendances
                   </span>
-                  <span className="text-gray-400 text-[13px] font-medium leading-none">this week</span>
+                  <span className="text-gray-400 text-[13px] font-medium leading-none">cette semaine</span>
                 </div>
               )}
             </div>

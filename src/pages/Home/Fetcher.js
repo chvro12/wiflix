@@ -1,5 +1,9 @@
+import { addMovieAvailabilityParams, isCatalogueVisible, movieReleaseCutoff } from './mediaAvailability';
+import { fetchR2Catalogue } from '../../utils/r2Catalogue';
+
+const BASE_URL = `${String(import.meta.env.VITE_EDGE_API_URL || 'https://weflix-edge.weflix-tsamba.workers.dev').replace(/\/$/, '')}/api/tmdb`;
 const API_KEY = import.meta.env.VITE_TMDB_API;
-const BASE_URL = import.meta.env.VITE_BASE_URL;
+const LANGUAGE = 'fr-FR';
 
 /**
  * Fetch content by genre — or by custom override params for special categories
@@ -16,6 +20,7 @@ export const fetchContentByGenre = async (type, genreId, page = 1, overrideParam
     const isTvPopularitySort = type === 'tv' && sortBy === 'popularity.desc';
     const isTvTopRatedSort = type === 'tv' && sortBy.startsWith('vote_average');
     const today = new Date().toISOString().slice(0, 10);
+    const movieCutoff = movieReleaseCutoff();
 
     // Relax vote floors on deeper pages for special categories so scrolling stays long.
     const specialTopRatedMinVotes = isDonghuaCategory
@@ -29,10 +34,11 @@ export const fetchContentByGenre = async (type, genreId, page = 1, overrideParam
       : (validPage <= 3 ? 120 : validPage <= 10 ? 60 : 25);
 
     const url = new URL(`${BASE_URL}/discover/${type}`);
-    url.searchParams.append('api_key', API_KEY);
+    url.searchParams.append('language', LANGUAGE);
     url.searchParams.append('page', validPage);
     url.searchParams.append('sort_by', sortBy);
     url.searchParams.append('include_adult', 'false');
+    if (type === 'movie') addMovieAvailabilityParams(url);
     // Require minimum votes when sorting by rating to avoid low-vote noise
     if (sortBy.startsWith('vote_average')) {
       url.searchParams.append('vote_count.gte', isSpecialCategory ? String(specialTopRatedMinVotes) : '300');
@@ -57,7 +63,7 @@ export const fetchContentByGenre = async (type, genreId, page = 1, overrideParam
     }
     
     if (isMovieNewestSort) {
-      url.searchParams.append('primary_release_date.lte', today);
+      url.searchParams.append('primary_release_date.lte', movieCutoff);
       url.searchParams.append('vote_count.gte', '50');
     }
 
@@ -72,7 +78,7 @@ export const fetchContentByGenre = async (type, genreId, page = 1, overrideParam
 
     // Improve movie "Most Popular" by excluding future/low-signal releases.
     if (isMoviePopularitySort) {
-      url.searchParams.append('primary_release_date.lte', today);
+      url.searchParams.append('primary_release_date.lte', movieCutoff);
       url.searchParams.append('vote_count.gte', String(moviePopularMinVotes));
     }
 
@@ -90,9 +96,11 @@ export const fetchContentByGenre = async (type, genreId, page = 1, overrideParam
     }
 
     const data = await response.json();
+    const catalogue = await fetchR2Catalogue();
+    const availableResults = (data.results ?? []).filter((item) => isCatalogueVisible(item, type, catalogue));
     const filteredResults = isPopularitySort
-      ? (data.results ?? []).filter((item) => Boolean(item.poster_path))
-      : (data.results ?? []);
+      ? availableResults.filter((item) => Boolean(item.poster_path))
+      : availableResults;
 
     return filteredResults;
   } catch (error) {
@@ -110,7 +118,7 @@ export const fetchTrending = async (type, page = 1, timeWindow = 'week', signal)
   try {
     const validPage = Math.min(Math.max(1, Math.floor(page)), 500);
     const url = new URL(`${BASE_URL}/trending/${type}/${timeWindow}`);
-    url.searchParams.append('api_key', API_KEY);
+    url.searchParams.append('language', LANGUAGE);
     url.searchParams.append('page', validPage);
 
     const response = await fetch(url, { signal });
@@ -119,7 +127,8 @@ export const fetchTrending = async (type, page = 1, timeWindow = 'week', signal)
       throw new Error(errorData.status_message || `Failed to fetch trending ${type}`);
     }
     const data = await response.json();
-    return data.results;
+    const catalogue = await fetchR2Catalogue();
+    return (data.results ?? []).filter((item) => isCatalogueVisible(item, type, catalogue));
   } catch (error) {
     throw new Error(`Trending fetch failed: ${error.message}`);
   }
@@ -133,7 +142,7 @@ export const fetchMovieDetails = async (movieId) => {
   try {
     const url = new URL(`${BASE_URL}/movie/${movieId}`);
     url.searchParams.append('api_key', API_KEY);
-    url.searchParams.append('language', 'en-US');
+    url.searchParams.append('language', LANGUAGE);
     url.searchParams.append('append_to_response', 'credits');
 
     let response = await fetch(url);
@@ -145,7 +154,7 @@ export const fetchMovieDetails = async (movieId) => {
     try {
       const text = await response.text();
       return JSON.parse(text);
-    } catch (parseError) {
+    } catch {
       // TMDB edge cache can sometimes return corrupted/double-gzipped binary blobs.
       // Retry with a cache buster to force a fresh JSON response from origin.
       url.searchParams.set('cb', Date.now());
@@ -167,7 +176,7 @@ export const fetchRelatedMovies = async (movieId) => {
   try {
     const url = new URL(`${BASE_URL}/movie/${movieId}/recommendations`);
     url.searchParams.append('api_key', API_KEY);
-    url.searchParams.append('language', 'en-US');
+    url.searchParams.append('language', LANGUAGE);
 
     const response = await fetch(url);
 
@@ -193,7 +202,7 @@ export const fetchSeriesDetails = async (tvId) => {
   try {
     const url = new URL(`${BASE_URL}/tv/${tvId}`);
     url.searchParams.append('api_key', API_KEY);
-    url.searchParams.append('language', 'en-US');
+    url.searchParams.append('language', LANGUAGE);
     url.searchParams.append('append_to_response', 'credits');
 
     let response = await fetch(url);
@@ -205,7 +214,7 @@ export const fetchSeriesDetails = async (tvId) => {
     try {
       const text = await response.text();
       return JSON.parse(text);
-    } catch (parseError) {
+    } catch {
       url.searchParams.set('cb', Date.now());
       const retryResponse = await fetch(url);
       if (!retryResponse.ok) throw new Error(`Retry failed`);
@@ -235,7 +244,7 @@ export const fetchAllEpisodes = async (tvId) => {
       try {
         const url = new URL(`${BASE_URL}/tv/${tvId}/season/${season.season_number}`);
         url.searchParams.append('api_key', API_KEY);
-        url.searchParams.append('language', 'en-US');
+        url.searchParams.append('language', LANGUAGE);
 
         let response = await fetch(url);
         if (!response.ok) {
@@ -246,7 +255,7 @@ export const fetchAllEpisodes = async (tvId) => {
         try {
           const text = await response.text();
           return JSON.parse(text);
-        } catch (parseError) {
+        } catch {
           url.searchParams.set('cb', Date.now());
           const retryResponse = await fetch(url);
           if (!retryResponse.ok) return null;
@@ -276,7 +285,7 @@ export const fetchRelatedSeries = async (tvId) => {
   try {
     const url = new URL(`${BASE_URL}/tv/${tvId}/recommendations`);
     url.searchParams.append('api_key', API_KEY);
-    url.searchParams.append('language', 'en-US');
+    url.searchParams.append('language', LANGUAGE);
 
     const response = await fetch(url);
 
@@ -301,7 +310,7 @@ export const fetchPersonDetails = async (personId) => {
   try {
     const url = new URL(`${BASE_URL}/person/${personId}`);
     url.searchParams.append('api_key', API_KEY);
-    url.searchParams.append('language', 'en-US');
+    url.searchParams.append('language', LANGUAGE);
     url.searchParams.append('append_to_response', 'combined_credits');
 
     const response = await fetch(url);

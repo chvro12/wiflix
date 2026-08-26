@@ -20,7 +20,7 @@ export default function EmailVerificationPage() {
     const mode = queryParams.get('mode');
 
     if (!oobCode || mode !== 'verifyEmail') {
-      setError('Invalid or missing verification token. Make sure you used the exact link from your email.');
+      setError('Le lien de vérification est invalide ou incomplet. Utilisez le lien exact reçu par e-mail.');
       setLoading(false);
       return;
     }
@@ -52,7 +52,7 @@ export default function EmailVerificationPage() {
 
         setSuccess(true);
       } catch (err) {
-        setError('The verification link is invalid or has expired.');
+        setError('Le lien de vérification est invalide ou a expiré.');
       } finally {
         setLoading(false);
       }
@@ -63,7 +63,7 @@ export default function EmailVerificationPage() {
 
   return (
     <div className="min-h-screen bg-[#07080a] flex items-center justify-center p-4">
-      <SEO title="Verify Email — WeFlix" noSuffix />
+      <SEO title="Vérification de l’adresse e-mail — WeFlix" noSuffix />
       
       <div className="w-full max-w-[400px] bg-[#0b0f19]/95 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl shadow-black p-8 text-center">
         <div className="flex justify-center items-center gap-2 mb-8">
@@ -78,22 +78,22 @@ export default function EmailVerificationPage() {
         {loading ? (
           <div className="flex flex-col items-center gap-4 py-8">
             <FaSpinner className="text-red-500 animate-spin text-4xl" />
-            <p className="text-gray-400 font-medium mt-2">Verifying your email...</p>
+            <p className="text-gray-400 font-medium mt-2">Vérification de votre adresse e-mail…</p>
           </div>
         ) : success ? (
           <div className="flex flex-col items-center gap-4">
             <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mb-2">
               <FaCheckCircle className="text-green-500 text-4xl" />
             </div>
-            <h2 className="text-xl font-bold text-white">Email Verified!</h2>
+            <h2 className="text-xl font-bold text-white">Adresse e-mail vérifiée !</h2>
             <p className="text-gray-400 text-sm mb-4">
-              Your email address has been successfully verified. Your account is now fully active.
+              Votre adresse e-mail a bien été vérifiée. Votre compte est maintenant actif.
             </p>
             <Link
               to="/"
               className="w-full py-3.5 flex justify-center items-center gap-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl shadow-[0_0_20px_rgba(220,38,38,0.3)] transition-all"
             >
-              Go to Homepage
+              Aller à l’accueil
             </Link>
           </div>
         ) : (
@@ -101,7 +101,7 @@ export default function EmailVerificationPage() {
             <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mb-2">
               <FaExclamationCircle className="text-red-500 text-4xl" />
             </div>
-            <h2 className="text-xl font-bold text-white">Verification Failed</h2>
+            <h2 className="text-xl font-bold text-white">Échec de la vérification</h2>
             <p className="text-gray-400 text-sm mb-4 leading-relaxed">
               {error}
             </p>
@@ -109,7 +109,7 @@ export default function EmailVerificationPage() {
               to="/"
               className="w-full py-3.5 flex justify-center items-center bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl transition-all"
             >
-              Back to Homepage
+              Retour à l’accueil
             </Link>
           </div>
         )}

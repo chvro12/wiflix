@@ -12,15 +12,17 @@ import { motion, AnimatePresence } from "framer-motion";
 import { fetchSeriesDetails, fetchAllEpisodes, fetchRelatedSeries } from "../Fetcher";
 import { getIdFromDetailSlug, toDetailPath } from "../urlUtils";
 import { saveToContinueWatching } from "../../../utils/continueWatching";
-import { FaRedo, FaStar, FaArrowLeft, FaTv, FaStepBackward, FaStepForward, FaInfoCircle, FaBookmark } from "react-icons/fa";
+import { FaRedo, FaStar, FaArrowLeft, FaTv, FaStepBackward, FaStepForward, FaBookmark, FaPlay } from "react-icons/fa";
 import { BiCalendar, BiGlobe, BiTv, BiChevronLeft, BiChevronRight, BiSearch } from "react-icons/bi";
 import DetailPageSkeleton from "../reused/DetailPageSkeleton";
 import VideoPlayer from "./VideoPlayer";
+import { scheduleMediaPrewarm } from "../../../utils/mediaPrewarm";
 import SEO from "../SEO";
 import ContentCard from "../ContentCard";
-import CastRow from "../reused/CastRow";
 import AuthModal from "../../../components/AuthModal";
+import TrailerButton from "../../../components/TrailerButton";
 import { useWatchlist } from "../../../context/WatchlistContext";
+import { fetchR2Catalogue, isR2Streamable } from "../../../utils/r2Catalogue";
 
 const MemoizedVideoPlayer = memo(VideoPlayer);
 
@@ -56,6 +58,7 @@ const TvDetails = ({ tvId: tvIdProp }) => {
   const [viewingSeason, setViewingSeason] = useState(null);
   const [playingSeason, setPlayingSeason] = useState(null);
   const [playingEpisode, setPlayingEpisode] = useState(null);
+  const [playerStarted, setPlayerStarted] = useState(false);
   const [showOverview, setShowOverview] = useState(false);
   const [episodeQuery, setEpisodeQuery] = useState('');
   const [isDraggingEpisodes, setIsDraggingEpisodes] = useState(false);
@@ -66,6 +69,14 @@ const TvDetails = ({ tvId: tvIdProp }) => {
   const { user, watchlistIds, toggleWatchlist: ctxToggleWatchlist } = useWatchlist();
   const inWatchlist = tv?.id ? watchlistIds.has(String(tv.id)) : false;
   const numericTvId = Number(tvId);
+  const hasStarted = Boolean(tv?.id && (() => {
+    try {
+      const items = JSON.parse(localStorage.getItem('wf_cw_cache_items') || '[]');
+      return Array.isArray(items) && items.some((item) => String(item.id) === String(tv.id) && item.mediaType === 'tv');
+    } catch {
+      return false;
+    }
+  })());
 
   const handleBack = () => {
     if (location.state?.from) {
@@ -76,6 +87,7 @@ const TvDetails = ({ tvId: tvIdProp }) => {
   };
 
   const activeEpisodeRef = useRef(null);
+  const playerSectionRef = useRef(null);
   const episodeListRef = useRef(null);
   const dragStateRef = useRef({ active: false, startX: 0, startScrollLeft: 0, moved: false });
   const suppressClickRef = useRef(false);
@@ -95,6 +107,7 @@ const TvDetails = ({ tvId: tvIdProp }) => {
     setViewingSeason(null);
     setPlayingSeason(null);
     setPlayingEpisode(null);
+    setPlayerStarted(false);
     setShowOverview(false);
     setEpisodeQuery('');
     setRelated([]);
@@ -117,8 +130,15 @@ const TvDetails = ({ tvId: tvIdProp }) => {
         fetchAllEpisodes(tvId),
         fetchRelatedSeries(tvId),
       ]);
+      const catalogue = await fetchR2Catalogue();
+      if (!isR2Streamable(seriesData, 'tv', catalogue)) {
+        navigate('/series', { replace: true });
+        return;
+      }
       setTv(seriesData);
-      setRelated((relatedData ?? []).filter((item) => item?.id && item.id !== seriesData.id).slice(0, 18));
+      setRelated((relatedData ?? [])
+        .filter((item) => item?.id && item.id !== seriesData.id && isR2Streamable(item, 'tv', catalogue))
+        .slice(0, 18));
       const filtered = (seasonsData ?? [])
         .filter(s => s.season_number > 0)
         .sort((a, b) => a.season_number - b.season_number);
@@ -135,7 +155,7 @@ const TvDetails = ({ tvId: tvIdProp }) => {
         if (urlSeason === null && urlEpisode === null) {
           try {
             const cwCache = JSON.parse(localStorage.getItem('wf_cw_cache_items') || '[]');
-            const cwMatch = cwCache.find(cw => cw.id === numericTvId);
+            const cwMatch = cwCache.find((cw) => String(cw.id) === String(numericTvId) && cw.mediaType === 'tv');
             if (cwMatch && cwMatch.season && cwMatch.episode) {
               urlSeason = cwMatch.season;
               urlEpisode = cwMatch.episode;
@@ -156,12 +176,12 @@ const TvDetails = ({ tvId: tvIdProp }) => {
         setPlayingEpisode(selectedEpisode);
       }
     } catch {
-      setError("Failed to load TV show details. Please try again.");
+      setError("Impossible de charger la série. Veuillez réessayer.");
     } finally {
       setLoading(false);
       setRetrying(false);
     }
-  }, [tvId]);
+  }, [tvId, navigate, numericTvId]);
 
   useEffect(() => {
     load();
@@ -174,6 +194,16 @@ const TvDetails = ({ tvId: tvIdProp }) => {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'auto' });
   }, [tvId]);
+
+  useEffect(() => {
+    if (!tv?.id || playerStarted || playingSeason === null || playingEpisode === null) return undefined;
+    return scheduleMediaPrewarm({
+      mediaType: 'tv',
+      mediaId: tv.id,
+      season: playingSeason,
+      episode: playingEpisode,
+    });
+  }, [tv, playerStarted, playingSeason, playingEpisode]);
 
   useEffect(() => {
     if (!tv?.id) return;
@@ -245,7 +275,7 @@ const TvDetails = ({ tvId: tvIdProp }) => {
 
   // Save to "Continue Watching" tracking
   useEffect(() => {
-    if (!tv || playingSeason === null || playingEpisode === null || !user?.uid) return;
+    if (!playerStarted || !tv || playingSeason === null || playingEpisode === null || !user?.uid) return;
     saveToContinueWatching(user.uid, {
       id: tv.id,
       mediaType: 'tv',
@@ -256,7 +286,15 @@ const TvDetails = ({ tvId: tvIdProp }) => {
       season: playingSeason,
       episode: playingEpisode,
     });
-  }, [tv, playingSeason, playingEpisode, user]);
+  }, [playerStarted, tv, playingSeason, playingEpisode, user]);
+
+  const startPlayback = () => {
+    if (playingSeason === null || playingEpisode === null) return;
+    setPlayerStarted(true);
+    requestAnimationFrame(() => {
+      playerSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  };
 
   useEffect(() => {
     if (activeEpisodeRef.current && episodeListRef.current && viewingSeason === playingSeason) {
@@ -430,7 +468,7 @@ const TvDetails = ({ tvId: tvIdProp }) => {
           className="w-full flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-semibold px-6 py-3 rounded-xl transition-colors"
         >
           <FaRedo className={retrying ? "animate-spin" : ""} />
-          {retrying ? "Retrying…" : "Retry"}
+          {retrying ? "Nouvelle tentative…" : "Réessayer"}
         </button>
       </div>
     </div>
@@ -455,11 +493,11 @@ const TvDetails = ({ tvId: tvIdProp }) => {
   return (
     <div className="min-h-screen bg-[#07080a] text-gray-200 selection:bg-red-500/30">
       <SEO
-        title={`${tv.name}${year ? ` (${year})` : ''} — Watch Free on WeFlix`}
+        title={`${tv.name}${year ? ` (${year})` : ''} — Regarder sur WeFlix`}
         description={
           tv.overview
-            ? `${tv.overview.slice(0, 150).trim()}… Stream ${tv.name} free on WeFlix.`
-            : `Stream ${tv.name} free on WeFlix.`
+            ? `${tv.overview.slice(0, 150).trim()}… Regardez ${tv.name} sur WeFlix.`
+            : `Regardez ${tv.name} sur WeFlix.`
         }
         image={
           tv.backdrop_path
@@ -515,7 +553,7 @@ const TvDetails = ({ tvId: tvIdProp }) => {
             className="group flex items-center gap-2 bg-black/30 hover:bg-black/50 backdrop-blur-md border border-white/10 text-gray-200 hover:text-white text-sm font-medium px-5 py-2.5 rounded-full transition-all duration-300"
           >
             <FaArrowLeft className="group-hover:-translate-x-1 transition-transform duration-300" />
-            <span>Back</span>
+            <span>Retour</span>
           </button>
         </div>
 
@@ -547,8 +585,9 @@ const TvDetails = ({ tvId: tvIdProp }) => {
 
             <div className="flex flex-wrap items-center gap-4 text-sm font-medium text-gray-300 mb-6 drop-shadow-md">
               {year && <span className="flex items-center gap-1.5"><BiCalendar className="text-gray-400 text-base" /> {year}</span>}
-              {allSeasons.length > 0 && <span className="flex items-center gap-1.5"><BiTv className="text-gray-400 text-base" /> {allSeasons.length} Season{allSeasons.length !== 1 ? 's' : ''}</span>}
-              {rating && <span className="flex items-center gap-1.5"><FaStar className="text-yellow-500 text-base" /> {rating}</span>}
+              {tv.number_of_seasons > 0 && <span className="flex items-center gap-1.5"><BiTv className="text-gray-400 text-base" /> {tv.number_of_seasons} saison{tv.number_of_seasons !== 1 ? 's' : ''}</span>}
+              {tv.number_of_episodes > 0 && <span>{tv.number_of_episodes} épisodes</span>}
+              {rating && <span className="flex items-center gap-1.5"><FaStar className="text-yellow-500 text-base" /> {rating}/10 <span className="text-gray-500">({tv.vote_count.toLocaleString('fr-FR')} votes)</span></span>}
             </div>
 
             {(tv.genres ?? []).length > 0 && (
@@ -563,6 +602,16 @@ const TvDetails = ({ tvId: tvIdProp }) => {
 
             {/* Actions */}
             <div className="flex flex-wrap gap-4 mb-6">
+               {playingSeason !== null && playingEpisode !== null && (
+                 <button
+                   onClick={startPlayback}
+                   className="flex items-center gap-2 rounded-xl bg-white px-7 py-3 font-bold text-black transition-all hover:bg-gray-200 active:scale-[0.98]"
+                 >
+                   <FaPlay className="text-sm" />
+                   {hasStarted ? 'Reprendre' : 'Lecture'}
+                 </button>
+               )}
+               <TrailerButton mediaType="tv" mediaId={tv.id} title={tv.name} />
                <button
                  onClick={toggleWatchlist}
                  className={`flex items-center gap-2 backdrop-blur-md text-white font-bold px-6 py-3 rounded-xl transition-all active:scale-[0.98] ${
@@ -572,7 +621,7 @@ const TvDetails = ({ tvId: tvIdProp }) => {
                  }`}
                >
                  <FaBookmark className={inWatchlist ? "text-red-400" : ""} /> 
-                 {inWatchlist ? "Remove from Watchlist" : "Add to Watchlist"}
+                 {inWatchlist ? "Retirer de ma liste" : "Ajouter à ma liste"}
                </button>
             </div>
 
@@ -586,7 +635,7 @@ const TvDetails = ({ tvId: tvIdProp }) => {
                     onClick={() => setShowOverview(p => !p)}
                     className="mt-3 text-white font-semibold hover:text-red-400 transition-colors text-sm underline underline-offset-4"
                   >
-                    {showOverview ? "Show Less" : "Read More"}
+                    {showOverview ? "Réduire" : "Lire la suite"}
                   </button>
                 )}
               </div>
@@ -596,13 +645,11 @@ const TvDetails = ({ tvId: tvIdProp }) => {
       </div>
 
       {/* ── PLAYER SECTION ── */}
-      <div className="relative z-20 max-w-7xl mx-auto px-4 sm:px-6 md:px-12 -mt-4 md:-mt-10 mb-12">
-        <div className="relative mb-6">
-          {/* Subtle Video Player Glow Backdrop */}
-          <div className="absolute -inset-1 bg-gradient-to-r from-red-600/30 to-blue-600/30 blur-2xl opacity-50 z-0 rounded-2xl md:rounded-[2rem]"></div>
-          
-          <div className="relative z-10 bg-[#0f1117]/80 backdrop-blur-xl border border-white/5 rounded-2xl md:rounded-[2rem] p-2 md:p-4 shadow-2xl ring-1 ring-white/5">
-            {playingSeason !== null && playingEpisode !== null ? (
+      {playerStarted && playingSeason !== null && playingEpisode !== null && (
+        <div className="relative z-20 max-w-7xl mx-auto px-4 sm:px-6 md:px-12 -mt-4 md:-mt-10 mb-12">
+          <div ref={playerSectionRef} className="relative mb-6 scroll-mt-24">
+            <div className="absolute -inset-1 bg-gradient-to-r from-red-600/30 to-blue-600/30 blur-2xl opacity-50 z-0 rounded-2xl md:rounded-[2rem]"></div>
+            <div className="relative z-10 bg-[#0f1117]/80 backdrop-blur-xl border border-white/5 rounded-2xl md:rounded-[2rem] p-2 md:p-4 shadow-2xl ring-1 ring-white/5">
               <MemoizedVideoPlayer
                 tvId={tvId}
                 season={playingSeason}
@@ -610,23 +657,15 @@ const TvDetails = ({ tvId: tvIdProp }) => {
                 title={tv.name}
                 key={`${tvId}-${playingSeason}-${playingEpisode}`}
               />
-            ) : (
-              <div className="w-full aspect-video bg-black rounded-xl flex items-center justify-center text-gray-400 font-medium">
-                Select an episode to start watching
-              </div>
-            )}
-
-          
-          {/* Controls */}
-          {playingSeason !== null && playingEpisode !== null && sortedEpisodes.length > 1 && (
-            <div className="flex items-center justify-between mt-4 px-2 mb-2 gap-3">
+              {sortedEpisodes.length > 1 && (
+                <div className="flex items-center justify-between mt-4 px-2 mb-2 gap-3">
               <button
                 onClick={() => jumpEpisode(-1)}
                 disabled={activeEpisodeIndex <= 0}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/[0.05] border border-white/[0.1] text-gray-300 hover:text-white hover:bg-white/[0.10] disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-200 text-sm font-semibold"
               >
                 <FaStepBackward className="text-xs" />
-                Prev
+                Précédent
               </button>
 
               <span className="text-xs text-gray-400 font-semibold tracking-wide hidden sm:block truncate text-center max-w-sm">
@@ -641,35 +680,16 @@ const TvDetails = ({ tvId: tvIdProp }) => {
                 disabled={activeEpisodeIndex < 0 || activeEpisodeIndex >= sortedEpisodes.length - 1}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600/90 hover:bg-red-500 border border-red-500/50 text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-200 text-sm font-semibold shadow-[0_0_15px_rgba(220,38,38,0.2)]"
               >
-                Next
+                Suivant
                 <FaStepForward className="text-xs" />
               </button>
+                </div>
+              )}
             </div>
-          )}
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Info Banner (match Movies) */}
-      <div className="relative z-20 max-w-7xl mx-auto px-4 sm:px-6 md:px-12 mb-12">
-        <div className="flex items-start gap-4 bg-blue-900/10 border border-blue-500/20 rounded-2xl p-4 md:p-5">
-          <FaInfoCircle className="text-blue-400 text-xl shrink-0 mt-0.5" />
-          <p className="text-blue-200/70 text-sm leading-relaxed">
-            For the best ad-free streaming experience, we highly recommend using{" "}
-            <a
-              href="https://ublockorigin.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-400 font-semibold underline underline-offset-2 hover:text-blue-300 transition-colors"
-            >
-              uBlock Origin
-            </a>
-            . Enjoy uninterrupted playback.
-          </p>
-        </div>
-      </div>
-     
-          
       {/* ── EPISODES SELECTOR ── */}
       {allSeasons.length > 0 && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-12 pb-16">
@@ -681,9 +701,9 @@ const TvDetails = ({ tvId: tvIdProp }) => {
                   <BiTv className="text-red-400 text-lg" />
                 </div>
                 <div>
-                  <h2 className="text-lg md:text-xl font-bold text-white mb-0.5">Episodes</h2>
+                  <h2 className="text-lg md:text-xl font-bold text-white mb-0.5">Épisodes</h2>
                   <p className="text-gray-400 text-xs font-medium">
-                    {currentSeasonData?.episodes?.length ?? 0} episodes in Season {viewingSeason}
+                    {currentSeasonData?.episodes?.length ?? 0} épisodes dans la saison {viewingSeason}
                   </p>
                 </div>
               </div>
@@ -695,7 +715,7 @@ const TvDetails = ({ tvId: tvIdProp }) => {
                   type="text"
                   value={episodeQuery}
                   onChange={(e) => setEpisodeQuery(e.target.value)}
-                  placeholder="Search episodes…"
+                  placeholder="Rechercher un épisode…"
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-red-500/50 focus:bg-white/[0.05] transition-all"
                 />
               </div>
@@ -732,7 +752,7 @@ const TvDetails = ({ tvId: tvIdProp }) => {
                         }}
                         className={`shrink-0 px-5 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 ${isViewing ? 'bg-red-600 text-white shadow-[0_4px_14px_rgba(220,38,38,0.4)]' : 'bg-white/[0.04] text-gray-400 hover:bg-white/[0.08] hover:text-white border border-white/5'}`}
                       >
-                        Season {season.season_number}
+                        Saison {season.season_number}
                       </button>
                     );
                   })}
@@ -795,7 +815,7 @@ const TvDetails = ({ tvId: tvIdProp }) => {
                           {isPlaying && (
                             <span className="absolute top-2 right-2 flex items-center gap-1.5 text-[10px] font-bold bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.5)] text-white px-2.5 py-1 rounded-full z-10">
                               <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                              PLAYING
+                              EN LECTURE
                             </span>
                           )}
 
@@ -813,7 +833,7 @@ const TvDetails = ({ tvId: tvIdProp }) => {
                         {/* Info */}
                         <div className={`px-4 py-3.5 flex-1 relative z-10 ${isPlaying ? 'bg-red-950/40' : 'bg-[#151821]'}`}>
                           <p className={`text-sm font-bold line-clamp-2 leading-snug ${isPlaying ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>
-                            {ep.name || `Episode ${ep.episode_number}`}
+                            {ep.name || `Épisode ${ep.episode_number}`}
                           </p>
                           {ep.runtime && (
                             <p className="text-[11px] text-gray-500 font-medium mt-1.5">{ep.runtime} min</p>
@@ -825,17 +845,12 @@ const TvDetails = ({ tvId: tvIdProp }) => {
                 </div>
               ) : (
                 <div className="py-10 text-center text-gray-500 bg-white/[0.02] rounded-2xl border border-white/5">
-                  <p className="text-sm">{episodeQuery.trim() ? 'No episodes found matching your search.' : 'No episodes available for this season.'}</p>
+                  <p className="text-sm">{episodeQuery.trim() ? 'Aucun épisode ne correspond à votre recherche.' : 'Aucun épisode disponible pour cette saison.'}</p>
                 </div>
               )}
             </div>
           </section>
         </div>
-      )}
-
-      {/* ── CAST & CREW ── */}
-      {tv.credits?.cast && tv.credits.cast.length > 0 && (
-        <CastRow cast={tv.credits.cast} />
       )}
 
       {/* ── RELATED TITLES ── */}
@@ -844,7 +859,7 @@ const TvDetails = ({ tvId: tvIdProp }) => {
           <div className="max-w-7xl mx-auto">
             <h3 className="text-xl md:text-2xl font-bold text-white mb-6 tracking-tight flex items-center gap-3">
               <span className="w-1.5 h-6 bg-red-500 rounded-full inline-block"></span>
-              More Like This
+              Titres similaires
             </h3>
             
             <div
@@ -884,7 +899,7 @@ const TvDetails = ({ tvId: tvIdProp }) => {
             <span>© {new Date().getFullYear()} WeFlix</span>
             <span className="mx-2 opacity-50">|</span>
             <span>
-              Data by{' '}
+              Données fournies par{' '}
               <a href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors font-medium">
                 TMDB
               </a>

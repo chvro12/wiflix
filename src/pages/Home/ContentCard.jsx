@@ -1,8 +1,9 @@
-import React, { useState, memo, useCallback, useEffect, useRef } from 'react';
+import { useState, memo, useCallback, useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { motion } from 'framer-motion';
 import { FaPlay, FaStar, FaPlus, FaCheck, FaTrash, FaVolumeMute, FaVolumeUp } from 'react-icons/fa';
 import { useWatchlist } from '../../context/WatchlistContext';
+import { selectPreferredTrailer } from './trailerSelection';
 
 const ContentCard = memo(({
   title,
@@ -22,7 +23,6 @@ const ContentCard = memo(({
 }) => {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
-  const [wlLoading, setWlLoading] = useState(false);
 
   const { watchlistIds, toggleWatchlist, ready, user } = useWatchlist();
 
@@ -40,19 +40,14 @@ const ContentCard = memo(({
       return;
     }
     if (!mediaId) return;
-    setWlLoading(true);
-    try {
-      await toggleWatchlist({
-        mediaId,
-        type: mediaType || 'movie',
-        title,
-        poster_path: posterPath || null,
-        vote_average: voteAverage || rating || 0,
-        release_date: releaseDate || null,
-      }, onNeedAuth);
-    } finally {
-      setWlLoading(false);
-    }
+    await toggleWatchlist({
+      mediaId,
+      type: mediaType || 'movie',
+      title,
+      poster_path: posterPath || null,
+      vote_average: voteAverage || rating || 0,
+      release_date: releaseDate || null,
+    }, onNeedAuth);
   }, [user, mediaId, mediaType, title, posterPath, voteAverage, rating, releaseDate, onNeedAuth, toggleWatchlist]);
 
   const handleKeyPress = useCallback((e) => {
@@ -64,6 +59,7 @@ const ContentCard = memo(({
 
   const src = imageError ? placeholderImage : poster;
   const year = releaseDate ? new Date(releaseDate).getFullYear() : null;
+  const isUpcoming = mediaType === 'movie' && Boolean(releaseDate) && releaseDate > new Date().toISOString().slice(0, 10);
   const ratingNum = rating ? Math.round(rating * 10) : null;
   const ratingColor = rating >= 7 ? 'text-green-400' : rating >= 5 ? 'text-yellow-400' : 'text-red-400';
   const showWatchlistBtn = !!mediaId;
@@ -124,19 +120,37 @@ const ContentCard = memo(({
   useEffect(() => {
     if (showTrailer && !trailerKey && !trailerError) {
       let cancelled = false;
+      const controller = new AbortController();
       const API_KEY = import.meta.env.VITE_TMDB_API;
-      fetch(`https://api.themoviedb.org/3/${mediaType}/${mediaId}/videos?api_key=${API_KEY}`)
-        .then(res => res.json())
-        .then(data => {
+      const baseUrl = `https://api.themoviedb.org/3/${mediaType}/${mediaId}/videos?api_key=${encodeURIComponent(API_KEY)}`;
+      const loadVideos = async (url) => {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) throw new Error(`TMDB a répondu ${response.status}`);
+        return (await response.json()).results || [];
+      };
+      Promise.allSettled([
+        loadVideos(`${baseUrl}&language=fr-FR`),
+        loadVideos(baseUrl),
+      ])
+        .then(results => {
           if (cancelled) return;
-          const v = data.results?.find(vid => vid.type === 'Trailer' && vid.site === 'YouTube');
-          if (v) setTrailerKey(v.key);
+          const videos = results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
+          const trailer = selectPreferredTrailer(videos);
+          if (trailer) setTrailerKey(trailer.key);
           else setTrailerError(true);
         })
-        .catch(() => setTrailerError(true));
-      return () => { cancelled = true; };
+        .catch(error => {
+          if (error.name !== 'AbortError') setTrailerError(true);
+        });
+      return () => { cancelled = true; controller.abort(); };
     }
   }, [showTrailer, mediaId, mediaType, trailerKey, trailerError]);
+
+  useEffect(() => {
+    setTrailerKey(null);
+    setTrailerError(false);
+    setIframeReady(false);
+  }, [mediaId, mediaType]);
 
   return (
     <motion.div
@@ -187,7 +201,7 @@ const ContentCard = memo(({
           {/* Media-type badge — top left */}
           {mediaType && (
             <div className="absolute top-2 left-2 bg-red-600 text-white text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-sm pointer-events-none">
-              {mediaType === 'tv' ? 'SERIES' : 'MOVIE'}
+              {isUpcoming ? 'BIENTÔT' : mediaType === 'tv' ? 'SÉRIE' : 'FILM'}
             </div>
           )}
 
@@ -202,7 +216,7 @@ const ContentCard = memo(({
             {showWatchlistBtn && (
               <button
                 onClick={handleWatchlist}
-                title={inWatchlist ? 'Remove from Watchlist' : 'Add to Watchlist'}
+                title={inWatchlist ? 'Retirer de ma liste' : 'Ajouter à ma liste'}
                 className={`w-12 h-12 rounded-full flex items-center justify-center
                   transform scale-75 group-hover:scale-100 transition-all duration-200
                   shadow-lg
@@ -225,7 +239,7 @@ const ContentCard = memo(({
           <p className="text-white text-[13px] font-semibold leading-tight line-clamp-1">{title}</p>
           {(year || mediaType) && (
             <p className="text-gray-500 text-[11px] mt-0.5">
-              {year}{year && mediaType && ' • '}{mediaType === 'tv' ? 'TV Show' : mediaType === 'movie' ? 'Movie' : ''}
+              {year}{year && mediaType && ' • '}{mediaType === 'tv' ? 'Série' : mediaType === 'movie' ? 'Film' : ''}
             </p>
           )}
         </div>
@@ -257,8 +271,8 @@ const ContentCard = memo(({
             <div className="relative w-full aspect-video bg-black cursor-pointer overflow-hidden">
               <iframe
                 ref={iframeRef}
-                title="Trailer"
-                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&modestbranding=1&loop=1&playlist=${trailerKey}&playsinline=1&enablejsapi=1`}
+                title="Bande-annonce"
+                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&modestbranding=1&loop=1&playlist=${trailerKey}&playsinline=1&enablejsapi=1&hl=fr&cc_lang_pref=fr`}
                 className="w-full h-full scale-[1.35] pointer-events-none"
                 allow="autoplay; encrypted-media"
                 onLoad={() => setTimeout(() => setIframeReady(true), 800)}

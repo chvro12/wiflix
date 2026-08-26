@@ -5,6 +5,21 @@ import { fetchPersonDetails } from '../Fetcher';
 import { toDetailPath } from '../urlUtils';
 import ContentCard from '../ContentCard';
 import SEO from '../SEO';
+
+const DEPARTMENT_LABELS = {
+  Acting: 'Interprétation',
+  Directing: 'Réalisation',
+  Production: 'Production',
+  Writing: 'Écriture',
+  Editing: 'Montage',
+  Camera: 'Image',
+  Sound: 'Son',
+  Art: 'Direction artistique',
+  Costume: 'Costumes et maquillage',
+  'Costume & Make-Up': 'Costumes et maquillage',
+  Crew: 'Équipe technique',
+  'Visual Effects': 'Effets visuels',
+};
 import { FaArrowLeft } from 'react-icons/fa';
 
 export default function PersonPage() {
@@ -26,7 +41,7 @@ export default function PersonPage() {
         }
       })
       .catch((err) => {
-        if (!cancelled) setError("Failed to load person details.");
+        if (!cancelled) setError("Impossible de charger les informations de cette personne.");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -86,7 +101,7 @@ export default function PersonPage() {
         <div className="bg-red-900/10 border border-red-700/30 rounded-2xl p-8 max-w-sm w-full text-center backdrop-blur-md">
           <p className="text-red-400 mb-6 font-medium">{error}</p>
           <button onClick={() => navigate(-1)} className="w-full flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 text-white font-semibold px-6 py-3 rounded-xl transition-all shadow-lg shadow-red-600/20">
-            Go Back
+            Retour
           </button>
         </div>
       </div>
@@ -101,7 +116,7 @@ export default function PersonPage() {
     >
       <SEO 
         title={`${person.name} — WeFlix`} 
-        description={person.biography || `Discover movies and TV shows starring ${person.name}.`}
+        description={person.biography || `Découvrez les films et séries avec ${person.name}.`}
         image={person.profile_path ? `https://image.tmdb.org/t/p/w780${person.profile_path}` : undefined}
       />
 
@@ -111,7 +126,7 @@ export default function PersonPage() {
           className="group flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/5 text-gray-300 hover:text-white text-sm font-semibold px-4 py-2 rounded-full transition-all duration-300 w-fit mb-8"
         >
           <FaArrowLeft className="group-hover:-translate-x-1 transition-transform duration-300" />
-          <span>Back</span>
+          <span>Retour</span>
         </button>
 
         <div className="flex flex-col md:flex-row gap-8 md:gap-12 lg:gap-16 mb-16">
@@ -126,7 +141,7 @@ export default function PersonPage() {
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-gray-600 font-medium bg-[#111827]">
-                  No Image Available
+                  Aucune image disponible
                 </div>
               )}
             </div>
@@ -139,12 +154,12 @@ export default function PersonPage() {
             <div className="flex flex-wrap gap-4 text-sm font-semibold text-gray-400 mb-8">
               {person.known_for_department && (
                 <span className="bg-red-600/20 text-red-500 px-3 py-1 rounded-full border border-red-500/30">
-                  {person.known_for_department}
+                  {DEPARTMENT_LABELS[person.known_for_department] || person.known_for_department}
                 </span>
               )}
               {person.birthday && (
                 <span className="bg-white/5 text-gray-300 px-3 py-1 rounded-full border border-white/10">
-                  Born: {person.birthday}
+                  Naissance : {person.birthday}
                 </span>
               )}
               {person.place_of_birth && (
@@ -157,7 +172,7 @@ export default function PersonPage() {
             <div className="mb-10">
               <h3 className="text-xl font-bold mb-4 flex items-center gap-3">
                 <span className="w-1.5 h-5 bg-red-500 rounded-full inline-block"></span>
-                Biography
+                Biographie
               </h3>
               {person.biography ? (
                 <div className="text-gray-300 text-sm md:text-base leading-relaxed tracking-wide opacity-90 space-y-4">
@@ -166,7 +181,7 @@ export default function PersonPage() {
                   ))}
                 </div>
               ) : (
-                <p className="text-gray-500 italic">We don't have a biography for {person.name}.</p>
+                <p className="text-gray-500 italic">Aucune biographie n’est disponible pour {person.name}.</p>
               )}
             </div>
           </div>
@@ -178,7 +193,7 @@ export default function PersonPage() {
             <div className="flex items-center justify-between mb-8">
               <h3 className="text-2xl md:text-3xl font-bold flex items-center gap-3">
                 <span className="w-1.5 h-6 bg-red-500 rounded-full inline-block"></span>
-                Known For
+                Connu(e) pour
               </h3>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 md:gap-5">

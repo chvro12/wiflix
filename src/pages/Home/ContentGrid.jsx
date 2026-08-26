@@ -1,36 +1,43 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { motion } from 'framer-motion';
 import ContentCard from './ContentCard';
 import { fetchContentByGenre, fetchTrending } from './Fetcher';
 import { SPECIAL_PARAMS } from './tmdb';
 import { BiWifi } from 'react-icons/bi';
+import { isCatalogueVisible } from './mediaAvailability';
+import { useR2Catalogue } from '../../utils/r2Catalogue';
 
 const POSTER_BASE_URL = 'https://image.tmdb.org/t/p/w500';
 const MAX_PAGES = 500;
 
-const ErrorWarning = () => (
+const ErrorWarning = ({ onRetry }) => (
   <div className="flex flex-col items-center justify-center gap-3 py-16">
     <BiWifi className="text-red-400 w-10 h-10" />
-    <p className="text-gray-400 text-sm font-medium">Connection error — check your network</p>
+    <p className="text-gray-400 text-sm font-medium">Le catalogue met un peu de temps à répondre.</p>
+    <button type="button" onClick={onRetry} className="rounded-full bg-white/10 px-4 py-2 text-xs font-bold text-white hover:bg-white/15">
+      Réessayer
+    </button>
   </div>
 );
+
+ErrorWarning.propTypes = { onRetry: PropTypes.func.isRequired };
 
 const EmptyState = ({ onReset }) => (
   <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
     <div className="w-14 h-14 rounded-2xl bg-white/[0.04] border border-white/[0.1] flex items-center justify-center text-xl">
       <span className="text-gray-300">?</span>
     </div>
-    <h3 className="text-white font-bold text-lg">No results found</h3>
+    <h3 className="text-white font-bold text-lg">Aucun résultat trouvé</h3>
     <p className="text-gray-500 text-sm max-w-md">
-      This filter combination returned no titles. Try switching to Most Popular or clear filters.
+      Cette combinaison de filtres ne renvoie aucun titre. Essayez « Les plus populaires » ou réinitialisez les filtres.
     </p>
     {onReset && (
       <button
         onClick={onReset}
         className="mt-1 inline-flex items-center rounded-full border border-white/[0.12] bg-white/[0.04] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-gray-300 hover:text-white hover:bg-white/[0.08] transition-colors motion-fast"
       >
-        Reset Filters
+        Réinitialiser les filtres
       </button>
     )}
   </div>
@@ -41,6 +48,7 @@ EmptyState.propTypes = {
 };
 
 const ContentGrid = ({ genreId, type, onSelect, sortBy = 'popularity.desc', onReset }) => {
+  const { data: catalogue } = useR2Catalogue();
   // fetchParams is the single source of truth for what to fetch.
   // Keeping it in state ensures the fetch effect always sees fresh values —
   // the sync effect below updates it, causing a new render, and only then
@@ -110,6 +118,7 @@ const ContentGrid = ({ genreId, type, onSelect, sortBy = 'popularity.desc', onRe
           : newContent;
 
         const unique = sanitized.filter((item) => {
+          if (!isCatalogueVisible(item, t, catalogue)) return false;
           if (seenIdsRef.current.has(item.id)) return false;
           seenIdsRef.current.add(item.id);
           return true;
@@ -134,7 +143,7 @@ const ContentGrid = ({ genreId, type, onSelect, sortBy = 'popularity.desc', onRe
       });
 
     return () => { controller.abort(); };
-  }, [fetchParams]);
+  }, [fetchParams, catalogue]);
 
   const handleObserver = useCallback((entries) => {
     const target = entries[0];
@@ -245,7 +254,11 @@ const ContentGrid = ({ genreId, type, onSelect, sortBy = 'popularity.desc', onRe
         </div>
       )}
 
-      {error && <ErrorWarning />}
+      {error && <ErrorWarning onRetry={() => {
+        setError(null);
+        setHasAttemptedFetch(false);
+        setFetchParams((current) => ({ ...current }));
+      }} />}
     </div>
   );
 };

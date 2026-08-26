@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BiChevronLeft, BiChevronRight } from 'react-icons/bi';
 import { FiArrowRight } from 'react-icons/fi';
-import { HiSparkles } from 'react-icons/hi';
 import { collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../../firebase';
 import ContentCard from './ContentCard';
 import { useWatchlist } from '../../context/WatchlistContext';
+import { isCatalogueVisible } from './mediaAvailability';
+import { fetchR2Catalogue } from '../../utils/r2Catalogue';
 
 const API_KEY = import.meta.env.VITE_TMDB_API;
 const BASE_URL = import.meta.env.VITE_BASE_URL;
@@ -20,12 +21,13 @@ async function fetchRecsForItem(mediaType, mediaId, count = 8) {
   try {
     const url = new URL(`${BASE_URL}/${mediaType}/${mediaId}/recommendations`);
     url.searchParams.append('api_key', API_KEY);
-    url.searchParams.append('language', 'en-US');
+    url.searchParams.append('language', 'fr-FR');
     const res = await fetch(url);
     if (!res.ok) return [];
     const data = await res.json();
+    const catalogue = await fetchR2Catalogue();
     return (data.results ?? [])
-      .filter(i => i.poster_path)
+      .filter(i => i.poster_path && isCatalogueVisible(i, mediaType, catalogue))
       .slice(0, count)
       .map(i => ({ ...i, media_type: mediaType }));
   } catch {
@@ -182,30 +184,27 @@ export default function PersonalizedRow({ onSelect }) {
   // Pick up to two seed titles for the subtitle and format them
   const subtitleNodes = seedTitles.length > 0 ? (
     <>
-      Based on{' '}
+      Inspiré par{' '}
       {seedTitles.slice(0, 2).map((t, i) => (
         <span key={i}>
           {i > 0 ? ', ' : ''}
           <span className="text-gray-300 font-medium">{t}</span>
         </span>
       ))}
-      {seedTitles.length > 2 && <span className="text-gray-500"> & more</span>}
+      {seedTitles.length > 2 && <span className="text-gray-500"> et d’autres</span>}
     </>
   ) : (
-    'Based on your watch history'
+    'Inspiré par votre historique de lecture'
   );
 
   return (
     <section className="mb-12 group/row" style={{ overflow: 'visible' }}>
       {/* ── Header ── */}
       <div className="flex items-center justify-between px-4 sm:px-6 mb-5">
-        <div className="flex items-start gap-3">
-          <div className="w-8 h-8 mt-0.5 rounded-lg bg-purple-600/20 text-purple-400 flex items-center justify-center shrink-0">
-            <HiSparkles className="text-lg" />
-          </div>
+        <div className="flex items-start">
           <div>
             <h2 className="text-white font-bold text-lg md:text-xl tracking-tight leading-tight">
-              Because you watched
+              Parce que vous avez regardé
             </h2>
             <p className="text-gray-500 text-xs mt-0.5">{subtitleNodes}</p>
           </div>

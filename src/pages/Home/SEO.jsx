@@ -27,11 +27,11 @@ export default function SEO({
 }) {
   const fullTitle = title
     ? noSuffix ? title : `${title} | ${SITE_NAME}`
-    : `${SITE_NAME} — Movie & TV Streaming`;
+    : `${SITE_NAME} — Films et séries en streaming`;
 
   const metaDescription =
     description ||
-    'Discover and stream trending movies and TV shows. Browse by genre, search titles, and watch instantly — powered by TMDB.';
+    'Découvrez les films et séries tendance, parcourez les genres et lancez votre séance sur WeFlix.';
 
   const metaImage  = image  || DEFAULT_IMAGE;
   const canonical  = (() => {

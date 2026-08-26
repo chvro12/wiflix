@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "weflix-edge",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-23",
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "weflix-media"
+    }
+  ],
+  "vars": {
+    "ALLOWED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173,https://wiflix.site,https://www.wiflix.site,https://weflix.site,https://www.weflix.site,https://www.weflix.app,https://weflix-75577.web.app,https://weflix-75577.firebaseapp.com",
+    "FIREBASE_PROJECT_ID": "weflix-75577"
+  }
+}

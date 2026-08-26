@@ -45,13 +45,13 @@ export default function HomePage() {
       className="bg-[#0a0c12] min-h-screen"
     >
       <SEO
-        title="WeFlix — Stream Movies & TV Shows"
-        description="Watch trending movies and TV shows for free. Browse by genre, discover new releases, and stream instantly on WeFlix — powered by TMDB."
+        title="WeFlix — Films et séries en streaming"
+        description="Découvrez les films et séries populaires, parcourez les genres et retrouvez les nouveautés sur WeFlix."
         noSuffix
       />
       
       {/* ── Visually Hidden H1 for SEO (Brand Keyword 'WeFlix') ── */}
-      <h1 className="sr-only">WeFlix - Free Movie & TV Show Streaming Platform</h1>
+      <h1 className="sr-only">WeFlix — Plateforme de films et séries</h1>
 
       <HeroBanner />
 
@@ -61,7 +61,7 @@ export default function HomePage() {
 
         {/* ── Movies ── */}
         <TrendingRow
-          title="Trending Movies"
+          title="Films tendance"
           type="movie"
           variant="trending"
           accent="#ef4444"
@@ -69,7 +69,7 @@ export default function HomePage() {
           onSeeAll={goMovies}
         />
         <TrendingRow
-          title="Top 10 Movies This Week"
+          title="Top 10 des films cette semaine"
           type="movie"
           variant="popular"
           showRank
@@ -79,19 +79,26 @@ export default function HomePage() {
           onSeeAll={goMovies}
         />
         <TrendingRow
-          title="Now Playing in Theaters"
+          title="Nouveautés sorties récemment"
           type="movie"
           variant="now_playing"
           accent="#f59e0b"
           onSelect={handleSelect}
           onSeeAll={goMovies}
         />
+        <TrendingRow
+          title="Bientôt disponibles"
+          type="movie"
+          variant="upcoming"
+          accent="#38bdf8"
+          onSelect={handleSelect}
+        />
 
-        <SectionDivider label="TV Shows" />
+        <SectionDivider label="Séries" />
 
         {/* ── TV ── */}
         <TrendingRow
-          title="Asian TV Shows"
+          title="Séries asiatiques"
           type="tv"
           variant="popular"
           originalLanguage={['ko', 'ja', 'zh']}
@@ -101,7 +108,7 @@ export default function HomePage() {
           onSeeAll={goSeries}
         />
         <TrendingRow
-          title="Trending TV Shows"
+          title="Séries tendance"
           type="tv"
           variant="trending"
           accent="#8b5cf6"
@@ -109,7 +116,7 @@ export default function HomePage() {
           onSeeAll={goSeries}
         />
         <TrendingRow
-          title="Top 10 Series This Week"
+          title="Top 10 des séries cette semaine"
           type="tv"
           variant="trending"
           showRank

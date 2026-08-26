@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { BiChevronLeft, BiChevronRight, BiTime } from 'react-icons/bi';
+import { BiChevronLeft, BiChevronRight } from 'react-icons/bi';
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../../firebase';
 import ContentCard from './ContentCard';
+import { fetchR2Catalogue, isR2Streamable } from '../../utils/r2Catalogue';
 
 const POSTER = 'https://image.tmdb.org/t/p/w500';
 
@@ -16,6 +17,7 @@ export default function ContinueWatchingRow({ onSelect, accent }) {
     }
   });
   const [user, setUser] = useState(null);
+  const [visibleItems, setVisibleItems] = useState([]);
   const rowRef = useRef(null);
   const dragStateRef = useRef({ active: false, startX: 0, startScrollLeft: 0, moved: false });
   const suppressClickRef = useRef(false);
@@ -52,6 +54,28 @@ export default function ContinueWatchingRow({ onSelect, accent }) {
     });
     return unsub;
   }, [user]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!items.length) {
+        if (!cancelled) setVisibleItems([]);
+        return;
+      }
+      try {
+        const catalogue = await fetchR2Catalogue();
+        const filtered = items.filter((item) => isR2Streamable(
+          { id: item.id, media_type: item.mediaType },
+          item.mediaType,
+          catalogue,
+        ));
+        if (!cancelled) setVisibleItems(filtered);
+      } catch {
+        if (!cancelled) setVisibleItems([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [items]);
 
   const scroll = (dir) => {
     const el = rowRef.current;
@@ -101,17 +125,14 @@ export default function ContinueWatchingRow({ onSelect, accent }) {
     return () => window.removeEventListener('mouseup', endRowDrag);
   }, [endRowDrag]);
 
-  if (!items.length) return null;
+  if (!visibleItems.length) return null;
 
   return (
     <section className="mb-12 group/row" style={{ overflow: 'visible' }}>
       {/* ── Section header ── */}
       <div className="flex items-center justify-between px-4 sm:px-6 mb-5">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-red-600/20 text-red-500 flex items-center justify-center">
-            <BiTime className="text-xl" />
-          </div>
-          <h2 className="text-white font-bold text-lg md:text-xl tracking-tight">Continue Watching</h2>
+        <div className="flex items-center">
+          <h2 className="text-white font-bold text-lg md:text-xl tracking-tight">Reprendre la lecture</h2>
         </div>
         <div className="flex items-center gap-2">
           {/* Nav arrows */}
@@ -141,7 +162,7 @@ export default function ContinueWatchingRow({ onSelect, accent }) {
         className={`flex gap-3 overflow-x-auto hide-scrollbar px-4 sm:px-6 select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
         style={{ paddingTop: 24, paddingBottom: 24, marginTop: -16, marginBottom: -16 }}
       >
-        {items.map((item) => {
+        {visibleItems.map((item) => {
           const releaseDate = item.release_date || '';
           const isTv = item.mediaType === 'tv';
           return (

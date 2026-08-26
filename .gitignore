@@ -13,6 +13,21 @@ dist
 dist-ssr
 *.local
 
+# Configuration modifiable depuis la page d'administration
+data/site-settings.json
+data/site-settings.json.*.tmp
+
+# Données persistantes et médias de la stack locale
+infra/media-stack/config/
+infra/media-stack/data/
+infra/media-stack/.env
+infra/media-stack/rclone-alldebrid.conf
+infra/tower/weflix_vps_ed25519
+
+# Sauvegardes VPS locales (configs Arr, clés API)
+.vps-migration-backup/
+.firebase/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

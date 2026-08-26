@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { BiChevronLeft, BiChevronRight } from 'react-icons/bi';
 import { FiArrowRight } from 'react-icons/fi';
 import ContentCard from './ContentCard';
+import { addMovieAvailabilityParams, isCatalogueVisible, isMovieUpcoming } from './mediaAvailability';
+import { fetchR2Catalogue } from '../../utils/r2Catalogue';
 
 const API_KEY = import.meta.env.VITE_TMDB_API;
 const BASE_URL = import.meta.env.VITE_BASE_URL;
@@ -12,6 +14,7 @@ const endpointFor = (type, variant) => {
   if (variant === 'popular') return `/${type}/popular`;
   if (variant === 'top_rated') return `/${type}/top_rated`;
   if (variant === 'now_playing') return '/movie/now_playing';
+  if (variant === 'upcoming') return '/movie/upcoming';
   if (variant === 'airing_today') return '/tv/airing_today';
   if (variant === 'on_the_air') return '/tv/on_the_air';
   return `/trending/${type}/week`; /* default: trending */
@@ -21,8 +24,8 @@ const endpointFor = (type, variant) => {
 const buildDiscoverUrl = (type, variant, langs, minRating, minVotes, sinceYear) => {
   const url = new URL(`${BASE_URL}/discover/${type}`);
   url.searchParams.append('api_key', API_KEY);
-  url.searchParams.append('language', 'en-US');
-  url.searchParams.append('with_original_language', langs.join('|'));
+  url.searchParams.append('language', 'fr-FR');
+  if (langs?.length) url.searchParams.append('with_original_language', langs.join('|'));
   url.searchParams.append('sort_by', 'popularity.desc');
   url.searchParams.append('include_adult', 'false');
   if (minRating > 0) url.searchParams.append('vote_average.gte', minRating);
@@ -32,10 +35,9 @@ const buildDiscoverUrl = (type, variant, langs, minRating, minVotes, sinceYear) 
     url.searchParams.append(dateKey, `${sinceYear}-01-01`);
   }
   if (variant === 'now_playing') {
-    const today = new Date().toISOString().slice(0, 10);
-    const month = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    url.searchParams.append('primary_release_date.gte', month);
-    url.searchParams.append('primary_release_date.lte', today);
+    const lastYear = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    url.searchParams.append('primary_release_date.gte', lastYear);
+    addMovieAvailabilityParams(url);
   }
   if (variant === 'airing_today') {
     const today = new Date().toISOString().slice(0, 10);
@@ -62,12 +64,29 @@ function useRow(type, variant = 'trending', minRating = 0, minVotes = 0, origina
       try {
         let results = [];
 
-        if (variant === 'trending' && langs) {
+        if (variant === 'now_playing') {
+          const url = buildDiscoverUrl(type, variant, langs, minRating, minVotes, sinceYear);
+          const [r1, r2] = await Promise.all([
+            fetch(url).then(r => r.json()),
+            (() => { const u2 = new URL(url); u2.searchParams.set('page', '2'); return fetch(u2).then(r => r.json()); })(),
+          ]);
+          results = [...(r1.results ?? []), ...(r2.results ?? [])];
+        } else if (variant === 'upcoming') {
+          const url = new URL(`${BASE_URL}${endpointFor(type, variant)}`);
+          url.searchParams.append('api_key', API_KEY);
+          url.searchParams.append('language', 'fr-FR');
+          url.searchParams.append('region', 'FR');
+          const [r1, r2] = await Promise.all([
+            fetch(url).then(r => r.json()),
+            (() => { const u2 = new URL(url); u2.searchParams.set('page', '2'); return fetch(u2).then(r => r.json()); })(),
+          ]);
+          results = [...(r1.results ?? []), ...(r2.results ?? [])];
+        } else if (variant === 'trending' && langs) {
           // Trending endpoint doesn't support language param — fetch 3 pages and filter client-side
           const pages = await Promise.all([1, 2, 3].map(page => {
             const url = new URL(`${BASE_URL}/trending/${type}/week`);
             url.searchParams.append('api_key', API_KEY);
-            url.searchParams.append('language', 'en-US');
+            url.searchParams.append('language', 'fr-FR');
             url.searchParams.append('page', page);
             return fetch(url).then(r => r.json());
           }));
@@ -85,7 +104,7 @@ function useRow(type, variant = 'trending', minRating = 0, minVotes = 0, origina
         } else {
           const url = new URL(`${BASE_URL}${endpointFor(type, variant)}`);
           url.searchParams.append('api_key', API_KEY);
-          url.searchParams.append('language', 'en-US');
+          url.searchParams.append('language', 'fr-FR');
           if (langs) url.searchParams.append('with_original_language', langs[0]);
           const res = await fetch(url);
           const data = await res.json();
@@ -93,12 +112,14 @@ function useRow(type, variant = 'trending', minRating = 0, minVotes = 0, origina
         }
 
         if (!cancelled) {
+          const catalogue = await fetchR2Catalogue();
           // Deduplicate by id
           const seen = new Set();
           setItems(
             results
               .filter(i => {
                 if (!i.poster_path) return false;
+                if (variant === 'upcoming' ? !isMovieUpcoming(i) : !isCatalogueVisible(i, type, catalogue)) return false;
                 if (seen.has(i.id)) return false;
                 seen.add(i.id);
                 return (
@@ -219,7 +240,7 @@ export default function TrendingRow({
               onClick={onSeeAll}
               className="flex items-center gap-1 text-gray-500 hover:text-red-400 text-xs font-semibold uppercase tracking-wider transition-colors duration-200 mr-1"
             >
-              See All <FiArrowRight className="text-sm" />
+              Tout voir <FiArrowRight className="text-sm" />
             </button>
           )}
           {/* Nav arrows: always visible, brighter on hover */}
@@ -278,7 +299,7 @@ export default function TrendingRow({
                 title={item.title || item.name}
                 poster={item.poster_path ? `${POSTER}${item.poster_path}` : null}
                 rating={item.vote_average}
-                releaseDate={releaseDate.slice(0, 4)}
+                releaseDate={releaseDate}
                 onClick={() => {
                   if (suppressClickRef.current) return;
                   onSelect(item, mediaType);

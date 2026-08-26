@@ -1,0 +1,292 @@
+name: weflix-media
+
+x-arr-environment: &arr-environment
+  PUID: ${PUID:-1000}
+  PGID: ${PGID:-1000}
+  TZ: ${TZ:-Europe/Paris}
+
+x-security: &security
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    container_name: weflix-jellyfin
+    init: true
+    <<: *security
+    ports:
+      - "127.0.0.1:${JELLYFIN_PORT:-8096}:8096"
+    environment:
+      TZ: ${TZ:-Europe/Paris}
+      JELLYFIN_PublishedServerUrl: ${JELLYFIN_PUBLIC_URL:-http://localhost:8096}
+    volumes:
+      - ./config/jellyfin:/config
+      - ./config/jellyfin-cache:/cache
+      # Jellyfin lit des pointeurs .strm HTTP et ne touche jamais au montage
+      # NFS AllDebrid, qui peut bloquer Docker Desktop.
+      - ./data/stream-library:/data/library:ro
+    networks: [media]
+
+  rclone-http:
+    image: rclone/rclone:latest
+    container_name: weflix-rclone-http
+    <<: *security
+    command:
+      - serve
+      - http
+      - AllDebrid:magnets
+      - --addr
+      - :8686
+      - --config
+      - /config/rclone.conf
+      - --read-only
+      - --dir-cache-time
+      - 5s
+    volumes:
+      - ./rclone-alldebrid.conf:/config/rclone.conf:ro
+    networks: [media]
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: weflix-radarr
+    <<: *security
+    ports:
+      - "127.0.0.1:${RADARR_PORT:-7878}:7878"
+    environment: *arr-environment
+    volumes:
+      # Keep SQLite off Docker Desktop/VirtioFS for the same reason as Sonarr.
+      - radarr-config:/config
+      - ./data:/data
+    networks: [media]
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: weflix-sonarr
+    <<: *security
+    ports:
+      - "127.0.0.1:${SONARR_PORT:-8989}:8989"
+    environment: *arr-environment
+    volumes:
+      # SQLite is kept in Docker's Linux filesystem. Bind-mounted SQLite files
+      # can be corrupted by Docker Desktop/VirtioFS during abrupt NFS stalls.
+      - sonarr-config:/config
+      - ./data:/data
+    networks: [media]
+
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: weflix-bazarr
+    <<: *security
+    depends_on: [radarr, sonarr]
+    ports:
+      - "127.0.0.1:${BAZARR_PORT:-6767}:6767"
+    environment: *arr-environment
+    volumes:
+      - ./config/bazarr:/config
+      - ./data:/data
+    networks: [media]
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: weflix-prowlarr
+    <<: *security
+    ports:
+      - "127.0.0.1:${PROWLARR_PORT:-9696}:9696"
+    environment: *arr-environment
+    volumes:
+      - ./config/prowlarr:/config
+      # Définition gérée par le projet : Torrentio ne sait rechercher que par
+      # identifiant IMDb. Les recherches texte doivent donc rester vides au
+      # lieu de retourner le titre de validation Fight Club/Reacher.
+      - ./prowlarr-definitions/torrentio.yml:/config/Definitions/Custom/torrentio.yml:ro
+    networks: [media]
+
+  comet:
+    image: g0ldyy/comet:latest
+    container_name: weflix-comet
+    <<: *security
+    init: true
+    read_only: true
+    cpus: 0.75
+    mem_limit: 512m
+    pids_limit: 192
+    ports:
+      - "127.0.0.1:${COMET_PORT:-8000}:8000"
+    environment:
+      TZ: ${TZ:-Europe/Paris}
+      FASTAPI_HOST: 0.0.0.0
+      FASTAPI_PORT: 8000
+      FASTAPI_WORKERS: 1
+      USE_GUNICORN: "True"
+      EXECUTOR_MAX_WORKERS: 1
+      DATABASE_TYPE: sqlite
+      DATABASE_PATH: /app/data/comet.db
+      TORRENT_CACHE_TTL: 604800
+      LIVE_TORRENT_CACHE_TTL: 3600
+      METADATA_CACHE_TTL: 2592000
+      DEBRID_CACHE_TTL: 86400
+      DEBRID_CACHE_CHECK_RATIO: "0.0"
+      ANIME_MAPPING_ENABLED: "False"
+      SCRAPE_COMET: live
+      COMET_URL: https://comet.feels.legal
+      SCRAPE_TORRENTIO: live
+      TORRENTIO_URL: https://torrentio.strem.fun
+      SCRAPE_ZILEAN: live
+      ZILEAN_URL: https://zileanfortheweebs.midnightignite.me
+      SMART_LANGUAGE_DETECTION: "True"
+      REMOVE_ADULT_CONTENT: "True"
+      DIGITAL_RELEASE_FILTER: "True"
+      BACKGROUND_SCRAPER_ENABLED: "False"
+      DMM_INGEST_ENABLED: "False"
+      PROXY_DEBRID_STREAM: "False"
+    volumes:
+      - comet-data:/app/data
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+    networks: [media]
+
+  seerr:
+    image: ghcr.io/seerr-team/seerr:latest
+    container_name: weflix-seerr
+    <<: *security
+    init: true
+    depends_on: [jellyfin, radarr, sonarr]
+    ports:
+      - "127.0.0.1:${SEERR_PORT:-5055}:5055"
+    environment:
+      TZ: ${TZ:-Europe/Paris}
+      PORT: 5055
+    volumes:
+      - ./config/seerr:/app/config
+    networks: [media]
+
+  r2-importer:
+    build:
+      context: ./r2-importer
+    container_name: weflix-r2-importer
+    <<: *security
+    # Le VPS de production dispose de 3 vCPU ; garder une marge pour le système
+    # et les services Arr pendant un transcodage interactif.
+    cpus: 2.75
+    mem_limit: 3g
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      - "127.0.0.1:${R2_IMPORTER_PORT:-8788}:8788"
+    env_file:
+      - ../../.env.local
+    environment:
+      TZ: ${TZ:-Europe/Paris}
+      R2_IMPORTER_USER: ${R2_IMPORTER_USER:-weflix}
+      R2_IMPORTER_PASSWORD: ${R2_IMPORTER_PASSWORD}
+      ALLDEBRID_API_KEY: ${ALLDEBRID_VORTEX_API_KEY}
+      REAL_DEBRID_API_KEY: ${REAL_DEBRID_API_KEY:-}
+      TORBOX_API_KEY: ${TORBOX_API_KEY:-}
+      COMET_URL: http://comet:8000
+      COMET_PRIMARY: ${COMET_PRIMARY:-true}
+      RADARR_URL: http://radarr:7878
+      RADARR_API_KEY: ${RADARR_API_KEY}
+      SONARR_URL: http://sonarr:8989
+      SONARR_API_KEY: ${SONARR_API_KEY}
+      JELLYFIN_URL: http://jellyfin:8096
+      EDGE_API_URL: https://weflix-edge.weflix-tsamba.workers.dev
+      VORTEX_URL: http://vortex:8080
+      VORTEX_USER: ${VORTEX_USER:-admin}
+      VORTEX_PASSWORD: ${VORTEX_PASSWORD:-adminadmin}
+      VORTEX_POLL_INTERVAL_MS: ${VORTEX_POLL_INTERVAL_MS:-3000}
+      R2_SYNC_INTERVAL_MINUTES: ${R2_SYNC_INTERVAL_MINUTES:-60}
+      VF_UPGRADE_CHECK_INTERVAL_HOURS: ${VF_UPGRADE_CHECK_INTERVAL_HOURS:-6}
+      VF_UPGRADE_BATCH_SIZE: ${VF_UPGRADE_BATCH_SIZE:-2}
+      R2_AUDIT_BATCH_SIZE: ${R2_AUDIT_BATCH_SIZE:-8}
+      CATALOGUE_PRELOAD_ENABLED: ${CATALOGUE_PRELOAD_ENABLED:-false}
+      R2_ON_DEMAND_ONLY: ${R2_ON_DEMAND_ONLY:-true}
+      MULTI_SOURCE_ENABLED: ${MULTI_SOURCE_ENABLED:-true}
+      MULTI_SOURCE_MAX: ${MULTI_SOURCE_MAX:-3}
+      CATALOGUE_PRELOAD_INTERVAL_SECONDS: ${CATALOGUE_PRELOAD_INTERVAL_SECONDS:-300}
+      CATALOGUE_PRELOAD_MAX_R2_PENDING: ${CATALOGUE_PRELOAD_MAX_R2_PENDING:-32}
+      CATALOGUE_PRELOAD_MAX_PAGE: ${CATALOGUE_PRELOAD_MAX_PAGE:-500}
+      CATALOGUE_PRELOAD_BATCH_SIZE: ${CATALOGUE_PRELOAD_BATCH_SIZE:-3}
+      PROVISION_CONCURRENCY: ${PROVISION_CONCURRENCY:-2}
+      BACKGROUND_PROVISION_CONCURRENCY: ${BACKGROUND_PROVISION_CONCURRENCY:-2}
+      # Fourni par ../../.env.local. Ne pas le redéfinir ici : Compose résout
+      # les substitutions avant env_file et écrasait l’URL publique par
+      # 127.0.0.1 sur le VPS.
+      MEDIA_ORIGIN_TOKEN: ${MEDIA_ORIGIN_TOKEN:-${R2_IMPORTER_PASSWORD}}
+      MEDIA_ORIGIN_SIGNING_KEY: ${MEDIA_ORIGIN_SIGNING_KEY:-${R2_IMPORTER_PASSWORD}}
+      LIVE_SESSION_TTL_SECONDS: ${LIVE_SESSION_TTL_SECONDS:-43200}
+      LIVE_TRANSCODE_CONCURRENCY: ${LIVE_TRANSCODE_CONCURRENCY:-2}
+      LIVE_FAILURE_COOLDOWN_MS: ${LIVE_FAILURE_COOLDOWN_MS:-120000}
+      LIVE_FIRST_FRAME_TIMEOUT_SECONDS: ${LIVE_FIRST_FRAME_TIMEOUT_SECONDS:-45}
+      LIVE_READY_SEGMENTS: ${LIVE_READY_SEGMENTS:-1}
+      LIVE_PROGRESS_STALL_SECONDS: ${LIVE_PROGRESS_STALL_SECONDS:-18}
+      DIRECT_PLAY_ENABLED: ${DIRECT_PLAY_ENABLED:-true}
+      EDGE_CACHE_HEAD_MB: ${EDGE_CACHE_HEAD_MB:-64}
+      EDGE_CACHE_TAIL_MB: ${EDGE_CACHE_TAIL_MB:-16}
+      EDGE_CACHE_MAX_ENTRIES: ${EDGE_CACHE_MAX_ENTRIES:-100}
+      R2_PAUSE_AT_INTERACTIVE_STREAMS: ${R2_PAUSE_AT_INTERACTIVE_STREAMS:-1}
+      R2_HLS_LAYOUT: ${R2_HLS_LAYOUT:-byterange-fmp4}
+      R2_FMP4_CANARY_LIMIT: ${R2_FMP4_CANARY_LIMIT:-0}
+      R2_LIGHT_CONCURRENCY: ${R2_LIGHT_CONCURRENCY:-2}
+      R2_MAX_AUDIO_TRACKS: ${R2_MAX_AUDIO_TRACKS:-1}
+      R2_MIN_FREE_DISK_GB: ${R2_MIN_FREE_DISK_GB:-20}
+      R2_MAX_ATTEMPTS: ${R2_MAX_ATTEMPTS:-3}
+      ENABLE_BACKGROUND_1080P: ${ENABLE_BACKGROUND_1080P:-false}
+    volumes:
+      - ./data/library:/data/library:ro
+      - ./config/r2-importer:/state
+      - ./data/stream-library:/stream-library
+      - ./config/seerr/settings.json:/seerr/settings.json:ro
+    networks: [media]
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: weflix-cloudflared
+    profiles: [tunnel]
+    <<: *security
+    depends_on: [r2-importer]
+    env_file:
+      - ../../.env.local
+    command: ["tunnel", "--no-autoupdate", "run"]
+    networks: [media]
+
+  # Optionnel : nécessite un compte AllDebrid et un montage rclone actif.
+  vortex:
+    image: weflix-vortex-fuzzy:latest
+    build:
+      context: ./vortex-fuzzy
+    container_name: weflix-vortex
+    profiles: [alldebrid]
+    <<: *security
+    ports:
+      - "127.0.0.1:${VORTEX_PORT:-6489}:8080"
+    environment:
+      PORT: 8080
+      LOG_LEVEL: ${VORTEX_LOG_LEVEL:-info}
+    volumes:
+      - ./config/vortex:/app/db
+      - ./data:/data
+    networks: [media]
+
+networks:
+  media:
+    name: weflix-media
+
+volumes:
+  comet-data:
+    name: weflix-comet-data
+  radarr-config:
+    name: weflix-radarr-config
+    external: true
+  sonarr-config:
+    name: weflix-sonarr-config

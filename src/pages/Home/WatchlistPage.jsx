@@ -23,20 +23,20 @@ function WatchlistPage() {
       transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
       className="min-h-screen bg-black text-white px-4 sm:px-8 pt-0 md:pt-10 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-16"
     >
-      <SEO title="My Watchlist - WeFlix" description="View your saved movies and TV shows." />
+      <SEO title="Ma liste - WeFlix" description="Retrouvez vos films et séries enregistrés." />
 
       {/* Mobile-aware sticky top bar */}
       <div className="sticky top-0 z-40 -mx-4 sm:-mx-8 px-4 sm:px-8 pt-[calc(env(safe-area-inset-top)+0.75rem)] md:pt-0 pb-3 md:pb-0 backdrop-blur-md bg-black/80 md:bg-transparent border-b border-white/[0.06] md:border-none mb-4 md:mb-0">
         <div className="flex items-center gap-3 md:hidden">
           <span className="w-1.5 h-8 bg-red-600 rounded-full inline-block shadow-[0_0_10px_rgba(220,38,38,0.5)]" />
-          <h1 className="text-2xl font-bold tracking-tight">My Watchlist</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Ma liste</h1>
         </div>
       </div>
 
       {/* Desktop heading */}
       <div className="hidden md:flex items-center gap-3 mb-6">
         <span className="w-1.5 h-8 bg-red-600 rounded-full inline-block shadow-[0_0_10px_rgba(220,38,38,0.5)]" />
-        <h1 className="text-3xl font-bold tracking-tight">My Watchlist</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Ma liste</h1>
       </div>
 
       {/* Not logged in */}
@@ -56,15 +56,15 @@ function WatchlistPage() {
                 <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-600 border-2 border-black" />
               </div>
             </div>
-            <h2 className="text-xl font-bold text-white mb-3 tracking-tight">Sign in to use Watchlist</h2>
+            <h2 className="text-xl font-bold text-white mb-3 tracking-tight">Connectez-vous pour utiliser votre liste</h2>
             <p className="text-gray-500 text-sm leading-relaxed mb-8">
-              Keep track of everything you want to watch. Your list saves across all your devices.
+              Retrouvez tout ce que vous souhaitez regarder. Votre liste est synchronisée sur tous vos appareils.
             </p>
             <button
-              onClick={() => document.querySelector('[title="Log In"]')?.click()}
+              onClick={() => window.dispatchEvent(new Event('openAuthModal'))}
               className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white font-semibold px-6 py-2.5 rounded-lg text-sm transition-colors shadow-lg shadow-red-600/20"
             >
-              Sign in
+              Se connecter
             </button>
           </motion.div>
         </div>
@@ -94,13 +94,13 @@ function WatchlistPage() {
             </div>
 
             <div className="text-center mb-10">
-              <h2 className="text-2xl font-bold text-white mb-3 tracking-tight">Your list is empty</h2>
+              <h2 className="text-2xl font-bold text-white mb-3 tracking-tight">Votre liste est vide</h2>
               <p className="text-gray-500 text-[15px] leading-relaxed max-w-sm mx-auto">
-                Browse movies and TV shows, then hit{' '}
+                Parcourez les films et les séries, puis utilisez{' '}
                 <span className="text-red-400 inline-flex items-center gap-1">
-                  <FaBookmark className="text-[11px]" /> Add to Watchlist
+                  <FaBookmark className="text-[11px]" /> Ajouter à ma liste
                 </span>{' '}
-                to save them here.
+                pour les retrouver ici.
               </p>
             </div>
 
@@ -110,14 +110,14 @@ function WatchlistPage() {
                 className="group flex items-center justify-center gap-2.5 bg-red-600 hover:bg-red-500 text-white font-semibold px-6 py-3 rounded-lg transition-colors duration-200 text-sm shadow-lg shadow-red-600/20"
               >
                 <BiMoviePlay className="text-base" />
-                Movies
+                Films
               </button>
               <button
                 onClick={() => navigate('/series')}
                 className="group flex items-center justify-center gap-2.5 border border-white/10 hover:border-red-500/30 bg-white/[0.03] hover:bg-red-500/5 text-gray-300 hover:text-white font-medium px-6 py-3 rounded-lg transition-all duration-200 text-sm"
               >
                 <BiTv className="text-base text-gray-400 group-hover:text-red-400 transition-colors" />
-                TV Shows
+                Séries
               </button>
             </div>
 
