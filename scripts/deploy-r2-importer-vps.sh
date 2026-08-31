@@ -3,8 +3,17 @@ set -euo pipefail
 
 VPS_HOST=${VPS_HOST:-78.138.45.49}
 VPS_USER=${VPS_USER:-weflix}
-SSH_KEY=${SSH_KEY:-${WEFLIX_VPS_SSH_KEY:+<(printf '%s' "$WEFLIX_VPS_SSH_KEY")}}
-SSH_KEY=${SSH_KEY:-$HOME/.ssh/weflix_vps_ed25519}
+TMP_SSH_KEY=""
+cleanup() { [[ -n "$TMP_SSH_KEY" ]] && rm -f "$TMP_SSH_KEY"; }
+trap cleanup EXIT
+if [[ -n "${WEFLIX_VPS_SSH_KEY:-}" ]]; then
+  TMP_SSH_KEY="$(mktemp)"
+  chmod 600 "$TMP_SSH_KEY"
+  printf '%s\n' "$WEFLIX_VPS_SSH_KEY" > "$TMP_SSH_KEY"
+  SSH_KEY="$TMP_SSH_KEY"
+else
+  SSH_KEY=${SSH_KEY:-$HOME/.ssh/weflix_vps_ed25519}
+fi
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STACK_ROOT="$PROJECT_ROOT/infra/media-stack"
 
