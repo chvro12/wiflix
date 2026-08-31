@@ -3,6 +3,7 @@ set -euo pipefail
 
 VPS_HOST=${VPS_HOST:-78.138.45.49}
 VPS_USER=${VPS_USER:-weflix}
+SSH_KEY=${SSH_KEY:-${WEFLIX_VPS_SSH_KEY:+<(printf '%s' "$WEFLIX_VPS_SSH_KEY")}}
 SSH_KEY=${SSH_KEY:-$HOME/.ssh/weflix_vps_ed25519}
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STACK_ROOT="$PROJECT_ROOT/infra/media-stack"
