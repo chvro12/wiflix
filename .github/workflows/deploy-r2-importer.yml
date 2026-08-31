@@ -35,9 +35,10 @@ jobs:
 
       - name: Sync stack and rebuild r2-importer
         run: |
-          rsync -az --exclude 'data/library/***' --exclude 'data/downloads/***' \
+          RSYNC_RSH='ssh -i ~/.ssh/weflix_vps_ed25519 -o StrictHostKeyChecking=no'
+          rsync -az -e "$RSYNC_RSH" --exclude 'data/library/***' --exclude 'data/downloads/***' \
             infra/media-stack/ "${VPS_USER}@${VPS_HOST}:/opt/weflix/infra/media-stack/"
-          ssh "weflix-vps" 'set -e
+          ssh -i ~/.ssh/weflix_vps_ed25519 -o StrictHostKeyChecking=no "${VPS_USER}@${VPS_HOST}" 'set -e
             cd /opt/weflix
             git fetch origin main || true
             git reset --hard origin/main || true
@@ -53,7 +54,7 @@ jobs:
 
       - name: Retry failed movie imports
         run: |
-          ORIGIN_TOKEN=$(ssh "weflix-vps" 'set -a; source /opt/weflix/infra/media-stack/.env 2>/dev/null || true; source /opt/weflix/.env.local 2>/dev/null || true; set +a; printf "%s" "${MEDIA_ORIGIN_TOKEN:-${R2_IMPORTER_PASSWORD:-}}"')
+          ORIGIN_TOKEN=$(ssh -i ~/.ssh/weflix_vps_ed25519 -o StrictHostKeyChecking=no "${VPS_USER}@${VPS_HOST}" 'set -a; source /opt/weflix/infra/media-stack/.env 2>/dev/null || true; source /opt/weflix/.env.local 2>/dev/null || true; set +a; printf "%s" "${MEDIA_ORIGIN_TOKEN:-${R2_IMPORTER_PASSWORD:-}}"')
           curl -fsS --max-time 30 -X POST \
             -H "Authorization: Bearer ${ORIGIN_TOKEN}" \
             -H 'Content-Type: application/json' \
