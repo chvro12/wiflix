@@ -1642,6 +1642,15 @@ const startProvision = (body) => {
   return publicProvision(provisions.get(lookupPath));
 };
 
+const remainingMovieMinRating = Number(process.env.REMAINING_MOVIE_MIN_RATING) || 6;
+const remainingMovieMinYear = Number(process.env.REMAINING_MOVIE_MIN_YEAR) || 1991;
+
+const moviePassesRemainingImportFilters = (metadata) => {
+  const rating = Number(metadata?.vote_average ?? metadata?.rating ?? 0);
+  const year = Number(String(metadata?.release_date ?? metadata?.releaseDate ?? '').slice(0, 4));
+  return rating > remainingMovieMinRating && year >= remainingMovieMinYear;
+};
+
 const cataloguePreloadEnabled = process.env.CATALOGUE_PRELOAD_ENABLED !== 'false';
 const r2OnDemandOnly = process.env.R2_ON_DEMAND_ONLY !== 'false';
 const cataloguePreloadIntervalMs = Math.max(60, Number(process.env.CATALOGUE_PRELOAD_INTERVAL_SECONDS) || 300) * 1000;
@@ -1683,8 +1692,9 @@ const loadCataloguePreloadState = async () => {
 const cataloguePreloadCandidates = async (page) => {
   const today = new Date().toISOString().slice(0, 10);
   const common = `page=${page}&sort_by=vote_average.desc&vote_count.gte=300&include_adult=false`;
+  const movieFilters = `vote_average.gt=${remainingMovieMinRating}&primary_release_date.gte=${remainingMovieMinYear}-01-01`;
   const [movies, series] = await Promise.all([
-    tmdbJson(`/discover/movie?${common}&primary_release_date.lte=${today}&region=FR`),
+    tmdbJson(`/discover/movie?${common}&${movieFilters}&primary_release_date.lte=${today}&region=FR`),
     tmdbJson(`/discover/tv?${common}&first_air_date.lte=${today}&include_null_first_air_dates=false`),
   ]);
   return [
@@ -1692,6 +1702,7 @@ const cataloguePreloadCandidates = async (page) => {
     ...(series.results || []).map((item) => ({ ...item, mediaType: 'tv', lookupPath: `episode/${item.id}/1/1` })),
   ]
     .filter((item) => item.id && item.poster_path)
+    .filter((item) => item.mediaType !== 'movie' || moviePassesRemainingImportFilters(item))
     .sort((left, right) => Number(right.vote_average || 0) - Number(left.vote_average || 0));
 };
 
@@ -1733,6 +1744,11 @@ const runCataloguePreload = async () => {
     let queuedThisRun = 0;
     while (cataloguePreloadState.offset < candidates.length) {
       const candidate = candidates[cataloguePreloadState.offset];
+      if (candidate.mediaType === 'movie' && !moviePassesRemainingImportFilters(candidate)) {
+        cataloguePreloadState.offset += 1;
+        cataloguePreloadState.skipped += 1;
+        continue;
+      }
       if (provisions.has(candidate.lookupPath) || activeProvisions.has(candidate.lookupPath)) {
         cataloguePreloadState.offset += 1;
         cataloguePreloadState.skipped += 1;
@@ -1771,6 +1787,163 @@ const runCataloguePreload = async () => {
     console.error(`Préchargement catalogue: ${error.message}`);
   } finally {
     cataloguePreloadRunning = false;
+  }
+};
+
+const requestedMovieImportEnabled = process.env.REQUESTED_MOVIE_IMPORT_ENABLED !== 'false';
+const requestedMovieImportIntervalMs = Math.max(60, Number(process.env.REQUESTED_MOVIE_IMPORT_INTERVAL_SECONDS) || 120) * 1000;
+const requestedMovieImportBatchSize = Math.max(1, Math.min(10, Number(process.env.REQUESTED_MOVIE_IMPORT_BATCH_SIZE) || 3));
+const requestedMovieImportStatePath = process.env.REQUESTED_MOVIE_IMPORT_STATE_PATH || '/state/requested-movie-import.json';
+let requestedMovieImportRunning = false;
+let requestedMovieImportQueue = new Map();
+let requestedMovieImportRefreshedAt = null;
+
+const requestedMovieImportCounts = () => {
+  const counts = {
+    catalogued: 0, retry: 0, no_magnet: 0, queued: 0, unmatched: 0,
+    already_catalogued: 0, excluded: 0, pending: 0,
+  };
+  for (const entry of requestedMovieImportQueue.values()) {
+    const bucket = counts[entry.status] != null ? entry.status : 'pending';
+    counts[bucket] += 1;
+  }
+  return counts;
+};
+
+const requestedMovieImportSnapshot = () => ({
+  total: requestedMovieImportQueue.size,
+  counts: requestedMovieImportCounts(),
+  running: requestedMovieImportRunning,
+  refreshedAt: requestedMovieImportRefreshedAt,
+  filters: { minRating: remainingMovieMinRating, minYear: remainingMovieMinYear },
+});
+
+const saveRequestedMovieImportState = async () => {
+  await mkdir(dirname(requestedMovieImportStatePath), { recursive: true });
+  const temporaryPath = `${requestedMovieImportStatePath}.tmp`;
+  await writeFile(temporaryPath, `${JSON.stringify({
+    refreshedAt: requestedMovieImportRefreshedAt,
+    entries: [...requestedMovieImportQueue.entries()],
+  }, null, 2)}\n`);
+  await rename(temporaryPath, requestedMovieImportStatePath);
+};
+
+const loadRequestedMovieImportState = async () => {
+  try {
+    const saved = JSON.parse(await readFile(requestedMovieImportStatePath, 'utf8'));
+    requestedMovieImportRefreshedAt = saved.refreshedAt || null;
+    requestedMovieImportQueue = new Map(Array.isArray(saved.entries) ? saved.entries : []);
+  } catch (error) {
+    if (error.code !== 'ENOENT') console.error(`État import films demandés illisible: ${error.message}`);
+  }
+};
+
+const refreshRequestedMovieImportQueue = async () => {
+  const apiKey = await seerrApiKey();
+  const baseUrl = String(process.env.SEERR_URL || 'http://seerr:5055').replace(/\/$/, '');
+  const headers = { 'X-Api-Key': apiKey };
+  const nextQueue = new Map(requestedMovieImportQueue);
+  for (let skip = 0; skip < 50_000; skip += 100) {
+    const response = await fetch(`${baseUrl}/api/v1/request?take=100&skip=${skip}&sort=added`, {
+      headers, signal: AbortSignal.timeout(20_000),
+    });
+    if (!response.ok) throw new Error(`Seerr liste des demandes a répondu ${response.status}.`);
+    const results = (await response.json()).results || [];
+    if (!results.length) break;
+    for (const request of results) {
+      if (request.type !== 'movie' || Number(request.status) !== 2 || !request.media?.tmdbId) continue;
+      const mediaId = Number(request.media.tmdbId);
+      const lookupPath = `movie/${mediaId}`;
+      const existing = nextQueue.get(lookupPath);
+      if (existing && !['pending', 'excluded'].includes(existing.status)) continue;
+      let metadata = existing?.metadata || null;
+      if (!metadata) {
+        try { metadata = await tmdbJson(`/movie/${mediaId}`); } catch { metadata = null; }
+      }
+      if (!metadata) {
+        nextQueue.set(lookupPath, { lookupPath, mediaId, status: 'unmatched', metadata: null, updatedAt: new Date().toISOString() });
+        continue;
+      }
+      if (!moviePassesRemainingImportFilters(metadata)) {
+        nextQueue.set(lookupPath, {
+          lookupPath, mediaId, status: 'excluded', metadata,
+          title: metadata.title, rating: metadata.vote_average, year: String(metadata.release_date || '').slice(0, 4),
+          updatedAt: new Date().toISOString(),
+        });
+        continue;
+      }
+      nextQueue.set(lookupPath, {
+        lookupPath, mediaId, status: existing?.status === 'queued' ? 'queued' : 'pending',
+        metadata, title: metadata.title, rating: metadata.vote_average,
+        year: String(metadata.release_date || '').slice(0, 4), updatedAt: new Date().toISOString(),
+      });
+    }
+    if (results.length < 100) break;
+  }
+  requestedMovieImportQueue = nextQueue;
+  requestedMovieImportRefreshedAt = new Date().toISOString();
+  await saveRequestedMovieImportState();
+};
+
+const reconcileRequestedMovieImportEntry = async (entry) => {
+  const provision = provisions.get(entry.lookupPath);
+  if (await hasCurrentCatalog(entry.lookupPath)) {
+    entry.status = 'already_catalogued';
+  } else if (provision?.availabilityState === 'r2_ready' || provision?.status === 'ready') {
+    entry.status = 'catalogued';
+  } else if (provision?.status === 'retrying') {
+    entry.status = /magnet|source|fichier|aucun/i.test(String(provision.error || '')) ? 'no_magnet' : 'retry';
+  } else if (activeProvisions.has(entry.lookupPath) || provision?.status === 'queued' || provisionQueue.some((job) => job.lookupPath === entry.lookupPath)) {
+    entry.status = 'queued';
+  } else if (entry.status === 'queued') {
+    entry.status = 'pending';
+  }
+  entry.updatedAt = new Date().toISOString();
+  requestedMovieImportQueue.set(entry.lookupPath, entry);
+};
+
+const runRequestedMovieImport = async () => {
+  if (!requestedMovieImportEnabled || requestedMovieImportRunning) return;
+  requestedMovieImportRunning = true;
+  try {
+    if (!requestedMovieImportRefreshedAt || Date.now() - Date.parse(requestedMovieImportRefreshedAt) > 6 * 60 * 60_000) {
+      await refreshRequestedMovieImportQueue();
+    }
+    for (const entry of requestedMovieImportQueue.values()) {
+      if (['catalogued', 'already_catalogued', 'excluded', 'no_magnet'].includes(entry.status)) continue;
+      await reconcileRequestedMovieImportEntry(entry);
+    }
+    let started = 0;
+    for (const entry of requestedMovieImportQueue.values()) {
+      if (started >= requestedMovieImportBatchSize) break;
+      if (entry.status !== 'pending' && entry.status !== 'retry') continue;
+      if (provisions.has(entry.lookupPath) || activeProvisions.has(entry.lookupPath)) continue;
+      if (await hasCurrentCatalog(entry.lookupPath)) {
+        entry.status = 'already_catalogued';
+        requestedMovieImportQueue.set(entry.lookupPath, entry);
+        continue;
+      }
+      try {
+        await requestCatalogueCandidateInSeerr({ mediaType: 'movie', id: entry.mediaId });
+        startProvision({ mediaType: 'movie', mediaId: entry.mediaId, background: true, rating: entry.rating });
+        entry.status = 'queued';
+        entry.updatedAt = new Date().toISOString();
+        requestedMovieImportQueue.set(entry.lookupPath, entry);
+        started += 1;
+        console.log(`Import film demandé: ${entry.lookupPath} (${Number(entry.rating || 0).toFixed(1)}/10 · ${entry.year || '?'})`);
+      } catch (error) {
+        entry.status = 'retry';
+        entry.lastError = error.message;
+        entry.updatedAt = new Date().toISOString();
+        requestedMovieImportQueue.set(entry.lookupPath, entry);
+        console.error(`Import film demandé ${entry.lookupPath}: ${error.message}`);
+      }
+    }
+    await saveRequestedMovieImportState();
+  } catch (error) {
+    console.error(`Import films demandés: ${error.message}`);
+  } finally {
+    requestedMovieImportRunning = false;
   }
 };
 
@@ -3263,7 +3436,9 @@ const originMetrics = () => {
       queued: cataloguePreloadState.queued, skipped: cataloguePreloadState.skipped,
       errors: cataloguePreloadState.errors, lastQueuedAt: cataloguePreloadState.lastQueuedAt,
       lastLookupPath: cataloguePreloadState.lastLookupPath, pausedByR2Backlog: r2EncodingQueued.size >= cataloguePreloadMaxR2Pending,
+      filters: { minRating: remainingMovieMinRating, minYear: remainingMovieMinYear },
     },
+    requestedMovieImport: requestedMovieImportSnapshot(),
     live: {
       queued: liveTranscodeQueue.length, active: liveTranscodesRunning,
       interactive: interactiveLiveTranscodes(), sessions: liveSessions.size,
@@ -3426,6 +3601,8 @@ createServer(async (request, response) => {
       r2: { layout: r2HlsLayout, lanes: r2LaneDepths(), pauseReason: r2PauseReason },
       provisioning: { queued: provisionQueue.length, active: runningProvisions, backgroundActive: runningBackgroundProvisions },
       preload: { enabled: cataloguePreloadEnabled, page: cataloguePreloadState.page, offset: cataloguePreloadState.offset, queued: cataloguePreloadState.queued, lastLookupPath: cataloguePreloadState.lastLookupPath },
+      requestedMovieImport: requestedMovieImportSnapshot(),
+      remainingMovieFilters: { minRating: remainingMovieMinRating, minYear: remainingMovieMinYear },
     }));
   }
   if (['GET', 'HEAD'].includes(request.method) && (request.url?.startsWith('/media/source') || request.url?.startsWith('/media/alldebrid'))) {
@@ -3495,6 +3672,7 @@ createServer(async (request, response) => {
   console.log('Les imports automatiques sont déclenchés par les webhooks Radarr/Sonarr.');
   await loadProvisionState();
   await loadCataloguePreloadState();
+  await loadRequestedMovieImportState();
   await loadR2Fmp4Canaries();
   for (const entry of await readdir(tmpdir()).catch(() => [])) {
     if (/^weflix-(arr-hls|live-publish)-/.test(entry)) await rm(join(tmpdir(), entry), { recursive: true, force: true }).catch(() => null);
@@ -3580,6 +3758,10 @@ createServer(async (request, response) => {
   if (cataloguePreloadEnabled) {
     setTimeout(runCataloguePreload, 30_000);
     setInterval(runCataloguePreload, cataloguePreloadIntervalMs);
+  }
+  if (requestedMovieImportEnabled) {
+    setTimeout(runRequestedMovieImport, 45_000);
+    setInterval(runRequestedMovieImport, requestedMovieImportIntervalMs);
   }
   setInterval(cleanupExpiredLiveSessions, 60_000);
   setInterval(() => {
