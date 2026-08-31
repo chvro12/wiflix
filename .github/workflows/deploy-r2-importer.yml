@@ -23,10 +23,21 @@ jobs:
       - name: Configure SSH
         run: |
           install -m 700 -d ~/.ssh
-          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/weflix_vps_ed25519
-          chmod 600 ~/.ssh/weflix_vps_ed25519
-          printf 'Host weflix-vps\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/weflix_vps_ed25519\n  IdentitiesOnly yes\n' "$VPS_HOST" "$VPS_USER" >> ~/.ssh/config
-          chmod 600 ~/.ssh/config
+          if [[ -z "${VPS_SSH_KEY//[[:space:]]/}" ]]; then
+            echo "Le secret WEFLIX_VPS_SSH_KEY est vide." >&2
+            exit 1
+          fi
+          KEY_FILE=~/.ssh/weflix_vps_ed25519
+          if printf '%s' "$VPS_SSH_KEY" | grep -q 'BEGIN.*PRIVATE KEY'; then
+            printf '%s\n' "$VPS_SSH_KEY" > "$KEY_FILE"
+          elif printf '%s' "$VPS_SSH_KEY" | tr -d '\n\r ' | base64 -d > "$KEY_FILE" 2>/dev/null \
+            && ssh-keygen -y -f "$KEY_FILE" >/dev/null 2>&1; then
+            echo "Clé SSH décodée depuis base64."
+          else
+            printf '%b' "$VPS_SSH_KEY" > "$KEY_FILE"
+          fi
+          chmod 600 "$KEY_FILE"
+          ssh-keygen -y -f "$KEY_FILE" >/dev/null
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
         env:
           VPS_SSH_KEY: ${{ secrets.WEFLIX_VPS_SSH_KEY }}
